@@ -1,0 +1,36 @@
+# Personal files (not shared with the group)
+CLAUDE.md
+CLAUDE.local.md
+**/CLAUDE.md
+.claude/
+.mcp.json
+Papers/
+
+# Course material distributed by the tutor (everyone has it already)
+src/MatlabCode/*.pdf
+
+# Generated outputs (reproducible from scripts/)
+results/*
+!results/.gitkeep
+
+# MATLAB
+*.asv
+*.mex*
+slprj/
+*.autosave
+*.mlx~
+
+# LaTeX build files (report compiled on Overleaf)
+report/**/*.aux
+report/**/*.log
+report/**/*.out
+report/**/*.toc
+report/**/*.synctex.gz
+report/**/*.pdf
+
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.obsidian/
