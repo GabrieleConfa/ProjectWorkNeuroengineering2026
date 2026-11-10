@@ -10,7 +10,22 @@
 %   - it IS useful to see the geometry with the electrode in place, to check that the AS
 %     can be meshed, and to see qualitatively how each AS spreads current among the fascicles.
 %
-% Two ways of modelling the AS (setting siteModel), both current-controlled:
+% Parameter sets (setting paramSet):
+%   "PW6"   - (default) the group's selection, config/pw6_2d_params.m and
+%             report/PW6_model_choices_and_rationale.pdf: tissue conductivities (Zelechowski 2020,
+%             Kangasmaa 2025), 14 um perineurium, gold contacts 50 x 200 x 200 um, cuff contacts
+%             resting on the nerve surface, contacts as ideal (equipotential) boundaries,
+%             hPeri = 5 um, hElec = 10 um, station z = -10.3 mm. Fascicle layout: the tutor's
+%             P00 section (group choice, see the config file).
+%   "tutor" - the first quick look: the tutor's conductivities (Davis 2023), 40 um perineurium,
+%             5 um contacts from sites.mat, platinum metal contacts.
+%
+% Three ways of modelling the AS (setting siteModel), all current-controlled:
+%   "ideal" - (PW6) every AS is a hole whose boundary is an ideal contact: the active AS is held
+%             at 1 V, the current that flows out of it is measured, and the solution is scaled
+%             to the wanted current. Idle AS are insulating holes. Bipolar pairs are solved with
+%             both AS held at fixed potentials (two solves, then the combination that gives
+%             -I and +I), because with insulating idle AS the monopolar solutions do not add up.
 %   "metal" - every AS is a face of metal (platinum or gold, setting metalName). The active AS
 %             is held at 1 V on its boundary (a metal is an equipotential), the current that
 %             flows out of it is measured on a circle around the nerve, and the solution is
@@ -26,11 +41,11 @@
 % (charge-injection capacity, safety check), which is not part of the volume conductor.
 %
 % Stimulation (setting bipolarPairs): monopolar = one AS against the grounded outer boundary;
-% bipolar = cathode -I on one AS and anode +I on another of the same section. Bipolar
-% solutions are built by superposition of the monopolar unit-current ones,
-% V_bip = -V_cathode + V_anode, valid in both site models (linearity; in "metal" a floating
-% AS carries zero net current, so it does not disturb the sum). Only pairs inside one section
-% are possible in 2D: a bipolar pair along the nerve (two sections) needs the 3D model.
+% bipolar = cathode -I on one AS and anode +I on another of the same section. In "metal" and
+% "void" the bipolar solutions are built by superposition of the monopolar unit-current ones,
+% V_bip = -V_cathode + V_anode (linearity; in "metal" a floating AS carries zero net current,
+% so it does not disturb the sum); in "ideal" they are solved directly (see above). Only pairs
+% inside one section are possible in 2D: a pair along the nerve (two sections) needs 3D.
 %
 % Other choices made for this quick look (not decisions of the project, see docs/decisions.md):
 %   - both faces of an AS active (tutor's question 3 still open);
@@ -41,28 +56,57 @@
 %     which span r = 0.2-0.4 mm, end exactly on the outer perineurium circle (r = 0.40 mm),
 %     a degenerate geometry. Here its endoneurium radius is 0.42 mm, so both inner AS sit
 %     inside the endoneurium (as in a TIME, where sites are meant to be inside fascicles);
-%   - cuff AS centred ON the nerve surface (r = R) instead of resting on it (r = R + t/2):
-%     in 2D a flat face resting on a circle touches it at a single point, which decsg
-%     cannot handle. The AS then straddles the nerve boundary by 2.5 um.
+%   - cuff AS: "tutor" set centred ON the nerve surface (r = R), so that the flat face does
+%     not touch the circle at a single point; "PW6" set resting on it (r = R + t/2), as chosen
+%     by the group (see the tangency check in section 4).
 %
 % Run from the project root:   setup_paths; run_2d_sites_quicklook
 % Settings can be overridden before the call, e.g.
+%   setup_paths; paramSet = "tutor"; run_2d_sites_quicklook
 %   setup_paths; sectionId = -3; siteModel = "void"; run_2d_sites_quicklook
-%   setup_paths; metalName = "gold"; bipolarPairs = [2 1]; run_2d_sites_quicklook
-% Outputs: figures and a .mat file in results/2d_sites/.
+%   setup_paths; bipolarPairs = [2 1]; run_2d_sites_quicklook
+% Outputs: figures and a .mat file in results/2d_sites/ (file names start with the set name).
 
-clearvars -except sectionId siteModel metalName bipolarPairs; close all; clc;
-params = default_params();
+clearvars -except paramSet sectionId siteModel metalName bipolarPairs; close all; clc;
 mm = 1e-3;  um = 1e-6;
 
 
 %% ---------- 1. SETTINGS OF THIS QUICK LOOK ----------
+if ~exist('paramSet', 'var'), paramSet = "PW6"; end        % "PW6" | "tutor" (see header)
+paramSet = string(paramSet);
+if paramSet == "PW6"
+    params = pw6_2d_params();
+    defaultSection   = [];                                  % from params.electrode.zCut_m
+    defaultSiteModel = params.electrode.siteModel;          % "ideal"
+    defaultMetal     = params.electrode.material;           % "gold"
+    tPeri_set        = params.geometry.tPeri_m;             % 14 um
+    centralREndo_m   = params.geometry.centralREndo_m;      % 0.42 mm (P00 layout)
+    thicknessOverride_m = params.electrode.thicknessOverride_m;   % 50 um
+    cuffPlacement    = params.electrode.cuffPlacement;      % "surface": centre at R + t/2
+    hSite_m = params.mesh.hSite_m;   hMin_m = params.mesh.hMin_m;
+else
+    params = default_params();
+    defaultSection   = -4;
+    defaultSiteModel = "metal";
+    defaultMetal     = "platinum";
+    tPeri_set        = params.geometry.tutorSection.tPeri_m;   % 40 um
+    centralREndo_m   = 0.42 * mm;  % endoneurium radius of the central fascicle (see header, D-g)
+    thicknessOverride_m = [];      % keep the 5 um of sites.mat
+    cuffPlacement    = "centred";  % centre on r = R (see header)
+    hSite_m = 5 * um;   hMin_m = 2 * um;
+end
+allSites = loadActiveSites(params.electrode.sitesFile, params.geometry.tutorSection.nerveRadius_m);
 if ~exist('sectionId', 'var')
-    sectionId = -4;          % electrode section to draw: -4...-1 (z < 0) or +1...+4 (z > 0).
-end                          % +k is the mirror image of -k, so -4...-1 cover the 4 orientations
-                             % (shank at theta = 0, 45, 90, 135 deg).
-if ~exist('siteModel', 'var'), siteModel = "metal"; end   % "metal" | "void" (see header)
-if ~exist('metalName', 'var'), metalName = "platinum"; end
+    if isempty(defaultSection)                              % PW6: section at z = zCut
+        sectionId = unique(allSites.section(abs(allSites.z_m - params.electrode.zCut_m) < 1e-9));
+        assert(isscalar(sectionId), 'No single electrode section at z = %.2f mm.', 1e3*params.electrode.zCut_m);
+    else
+        sectionId = defaultSection;  % electrode section to draw: -4...-1 (z < 0) or +1...+4.
+    end                              % +k is the mirror image of -k, so -4...-1 cover the 4
+end                                  % orientations (shank at theta = 0, 45, 90, 135 deg).
+if ~exist('siteModel', 'var'), siteModel = defaultSiteModel; end   % "ideal" | "metal" | "void"
+if ~exist('metalName', 'var'), metalName = defaultMetal; end
+siteModel = string(siteModel);   metalName = string(metalName);
 % Bulk electrical conductivity of the AS metal [S/m] at 20 C: platinum rho = 1.06e-7 Ohm*m,
 % gold rho = 2.2e-8 Ohm*m (CRC Handbook of Chemistry and Physics) [CHECK the edition before
 % quoting]. Any value >> tissue (~0.1 S/m) gives the same result.
@@ -78,9 +122,6 @@ if ~exist('bipolarPairs', 'var')
 end
 Iline_Apm     = 1;           % injected current per metre of nerve [A/m] (2D "unit current";
                              % the problem is linear, so any other value just scales V and E)
-centralREndo_m = 0.42 * mm;  % endoneurium radius of the central fascicle (see header, D-g)
-hSite_m       = 5 * um;      % element size on the AS boundary (= AS thickness)
-hMin_m        = 2 * um;      % minimum element size
 
 outDir = fullfile(fileparts(fileparts(mfilename('fullpath'))), 'results', '2d_sites');
 if ~exist(outDir, 'dir'), mkdir(outDir); end
@@ -88,7 +129,7 @@ if ~exist(outDir, 'dir'), mkdir(outDir); end
 
 %% ---------- 2. NERVE GEOMETRY (patient P00 = tutor's section) ----------
 R     = params.geometry.tutorSection.nerveRadius_m;       % nerve radius [m]
-tPeri = params.geometry.tutorSection.tPeri_m;             % perineurium thickness [m]
+tPeri = tPeri_set;                                        % perineurium thickness [m]
 fasc  = params.geometry.tutorSection.fascicles_m;         % [x y rEndo] per fascicle [m]
 fasc(1,3) = centralREndo_m;                               % D-g workaround (see header)
 nFasc = size(fasc, 1);
@@ -100,14 +141,20 @@ tissueColor = [0.95 0.70 0.75; 0.45 0.25 0.35; 0.98 0.90 0.75; 0.85 0.93 1.00];
 
 
 %% ---------- 3. ACTIVE SITES OF THE CHOSEN SECTION ----------
-allSites = loadActiveSites(params.electrode.sitesFile, R);
 S  = allSites(allSites.section == sectionId, :);
 nS = height(S);
 assert(nS > 0, 'No active site in section %d.', sectionId);
 
-isCuff = S.type == "cuff";                                % cuff AS: centre on r = R (header)
-S.r_m(isCuff) = R;
-S.centre_m(isCuff, 1:2) = R * [cosd(S.theta_deg(isCuff)), sind(S.theta_deg(isCuff))];
+if ~isempty(thicknessOverride_m)                          % PW6: 50 um instead of the 5 um of
+    S.thickness_m(:) = thicknessOverride_m;               % sites.mat (positions unchanged)
+end
+isCuff = S.type == "cuff";
+if cuffPlacement == "surface"                             % face resting on the nerve surface
+    S.r_m(isCuff) = R + S.thickness_m(isCuff) / 2;
+else                                                      % "centred": centre on r = R (header)
+    S.r_m(isCuff) = R;
+end
+S.centre_m(isCuff, 1:2) = S.r_m(isCuff) .* [cosd(S.theta_deg(isCuff)), sind(S.theta_deg(isCuff))];
 
 fprintf('Section %+d (z = %.1f mm): %d active sites\n', sectionId, 1e3*S.z_m(1), nS);
 disp(S(:, {'id', 'type', 'r_m', 'theta_deg', 'phi_deg', 'thickness_m', 'sideXY_m'}));
@@ -247,36 +294,49 @@ end
 % (anodic; a cathodic pulse is the same solution with -V). The current is measured as the
 % flux of J through a circle of radius 1.3 R, which encloses all the AS: idle metal AS carry
 % no net current, so the flux equals the current of the active AS.
-%   "metal": active AS boundary at 1 V -> measure the current -> scale.
+%   "metal", "ideal": active AS boundary at 1 V -> measure the current -> scale.
 %   "void" : uniform current density on the active AS boundary = current / perimeter
 %            [A/m^2]; the measured flux is only a check (it must equal Iline_Apm).
+% In "ideal" the current of the active AS is also computed as the "reaction" of the FE system
+% on its nodes, sum(K(nodes,:) * V) with K the stiffness matrix (the method used for the
+% bipolar pairs; checked on a hole in a disk: 0.003% from the analytical value). The two
+% values must agree.
+isFixedV = siteModel ~= "void";                           % active AS held at a fixed potential
+siteNodes = cell(nS, 1);
+for k = 1:nS, siteNodes{k} = findNodes(msh, "region", "Edge", siteEdges{k}); end
+if siteModel == "ideal"
+    FE = assembleFEMatrices(model, "none");               % stiffness matrix without BCs
+    siteCurrent = @(u, k) full(sum(FE.K(siteNodes{k}, :) * u));   % [A/m] leaving AS k
+end
 nN = size(msh.Nodes, 2);
 V  = zeros(nN, nS);   Ex = zeros(nN, nS);   Ey = zeros(nN, nS);   % [V], [V/m]
-Iraw_Apm = zeros(nS, 1);                                  % flux before scaling [A/m]
+Iraw_Apm = zeros(nS, 1);   Ibox_Apm = nan(nS, 1);         % flux before scaling [A/m]
 rC  = 1.3 * R;   thC = linspace(0, 2*pi, 1441);   thC(end) = [];
 for k = 1:nS
     mk = model;                                           % femodel is a value object: a copy
-    if siteModel == "metal"
+    if isFixedV
         mk.EdgeBC(siteEdges{k}) = edgeBC(Voltage = 1);
     else
         mk.EdgeLoad(siteEdges{k}) = edgeLoad(SurfaceCurrentDensity = Iline_Apm / sitePerim_m(k));
     end
     res = solve(mk);
     Iraw_Apm(k) = circleFlux(res, rC, thC);
-    if siteModel == "metal", scale = Iline_Apm / Iraw_Apm(k); else, scale = 1; end
+    if siteModel == "ideal", Ibox_Apm(k) = siteCurrent(res.ElectricPotential, k); end
+    if isFixedV, scale = Iline_Apm / Iraw_Apm(k); else, scale = 1; end
     V(:, k)  = scale * res.ElectricPotential;
     Ex(:, k) = scale * res.ElectricField.Ex;
     Ey(:, k) = scale * res.ElectricField.Ey;
 end
 
-siteNodes = cell(nS, 1);
-for k = 1:nS, siteNodes{k} = findNodes(msh, "region", "Edge", siteEdges{k}); end
 Vsite = arrayfun(@(k) mean(V(siteNodes{k}, k)), (1:nS)');  % potential of the active AS [V]
 
 fprintf('\nMonopolar, %g A/m leaving the AS (site model "%s"%s):\n', Iline_Apm, siteModel, ...
         string(repmat(", " + metalName, siteModel == "metal")));
 for k = 1:nS
-    if siteModel == "metal"
+    if siteModel == "ideal"
+        fprintf('   AS %2d (%-11s): V_AS = %8.3f V   (1 V gave %.4f A/m; reaction %.4f A/m)\n', ...
+                S.id(k), string(S.type(k)), Vsite(k), Iraw_Apm(k), Ibox_Apm(k));
+    elseif siteModel == "metal"
         fprintf('   AS %2d (%-11s): V_AS = %8.3f V   (1 V gave %.4f A/m)\n', ...
                 S.id(k), string(S.type(k)), Vsite(k), Iraw_Apm(k));
     else
@@ -285,6 +345,10 @@ for k = 1:nS
     end
 end
 assert(all(Vsite > 0), 'Unexpected sign of the AS potential: check the current convention.');
+if siteModel == "ideal"
+    fprintf('Reaction vs circle flux: max relative difference %.1e\n', ...
+            max(abs(Ibox_Apm - Iraw_Apm) ./ Iraw_Apm));
+end
 
 % "metal" check: an idle AS must be (nearly) an equipotential: spread of V on its boundary
 % relative to the largest potential difference in the nerve.
@@ -301,17 +365,20 @@ end
 
 % Linearity check: doubling the excitation must double V
 mk = model;
-if siteModel == "metal", mk.EdgeBC(siteEdges{1}) = edgeBC(Voltage = 2);
+if isFixedV, mk.EdgeBC(siteEdges{1}) = edgeBC(Voltage = 2);
 else, mk.EdgeLoad(siteEdges{1}) = edgeLoad(SurfaceCurrentDensity = 2*Iline_Apm/sitePerim_m(1)); end
 res2 = solve(mk);
 V1 = V(:,1);                                              % unscaled solution of AS 1
-if siteModel == "metal", V1 = V1 * Iraw_Apm(1) / Iline_Apm; end
+if isFixedV, V1 = V1 * Iraw_Apm(1) / Iline_Apm; end
 fprintf('Linearity check (2x excitation): max |V2 - 2 V1| / max|V1| = %.1e\n', ...
         max(abs(res2.ElectricPotential - 2*V1)) / max(abs(V1)));
 
 
-%% ---------- 6b. BIPOLAR: superposition of the monopolar solutions ----------
-% Cathode c (current -I, drawn out of the tissue) and anode a (+I): V = -V_c + V_a.
+%% ---------- 6b. BIPOLAR: cathode c (current -I, drawn out of the tissue), anode a (+I) ----------
+% "metal", "void": superposition, V = -V_c + V_a.
+% "ideal": two solves with both AS at fixed potentials, (V_c, V_a) = (1, 0) and (0, 1); the
+% current of each AS is the FE reaction on its nodes, and the combination
+% alpha*sol1 + beta*sol2 is chosen so that I_c = -I and I_a = +I. Both AS stay equipotential.
 nB = size(bipolarPairs, 1);
 assert(all(bipolarPairs(:) >= 1 & bipolarPairs(:) <= nS), 'bipolarPairs: positions 1...%d.', nS);
 Vb = zeros(nN, nB);   Exb = zeros(nN, nB);   Eyb = zeros(nN, nB);
@@ -319,9 +386,27 @@ bipLabel = strings(nB, 1);
 fprintf('\nBipolar, %g A/m (cathode -, anode +):\n', Iline_Apm);
 for b = 1:nB
     c = bipolarPairs(b, 1);   a = bipolarPairs(b, 2);
-    Vb(:, b)  = -V(:, c)  + V(:, a);
-    Exb(:, b) = -Ex(:, c) + Ex(:, a);
-    Eyb(:, b) = -Ey(:, c) + Ey(:, a);
+    if siteModel == "ideal"
+        sol = cell(2, 1);   Icur = zeros(2, 2);           % Icur(site, solve): rows c, a
+        for q = 1:2
+            mk = model;
+            mk.EdgeBC(siteEdges{c}) = edgeBC(Voltage = double(q == 1));
+            mk.EdgeBC(siteEdges{a}) = edgeBC(Voltage = double(q == 2));
+            sol{q} = solve(mk);
+            Icur(:, q) = [siteCurrent(sol{q}.ElectricPotential, c); ...
+                          siteCurrent(sol{q}.ElectricPotential, a)];
+        end
+        coef = Icur \ [-Iline_Apm; Iline_Apm];            % [alpha; beta]
+        Vb(:, b)  = coef(1) * sol{1}.ElectricPotential  + coef(2) * sol{2}.ElectricPotential;
+        Exb(:, b) = coef(1) * sol{1}.ElectricField.Ex   + coef(2) * sol{2}.ElectricField.Ex;
+        Eyb(:, b) = coef(1) * sol{1}.ElectricField.Ey   + coef(2) * sol{2}.ElectricField.Ey;
+        Inet = coef(1) * circleFlux(sol{1}, rC, thC) + coef(2) * circleFlux(sol{2}, rC, thC);
+        fprintf('   (net current to the outer boundary: %.1e A/m, should be ~0)\n', Inet);
+    else
+        Vb(:, b)  = -V(:, c)  + V(:, a);
+        Exb(:, b) = -Ex(:, c) + Ex(:, a);
+        Eyb(:, b) = -Ey(:, c) + Ey(:, a);
+    end
     bipLabel(b) = sprintf('AS %d(-) / AS %d(+)', S.id(c), S.id(a));
     fprintf('   %-20s V_cathode = %8.3f V, V_anode = %8.3f V, voltage between them = %.3f V\n', ...
             bipLabel(b), mean(Vb(siteNodes{c}, b)), mean(Vb(siteNodes{a}, b)), ...
@@ -382,7 +467,8 @@ axis equal; box on; xlim(cz(1) + 0.18*[-1 1]); ylim(cz(2) + 0.18*[-1 1]);
 xlabel('x [mm]'); ylabel('y [mm]');
 title(sprintf('Mesh around AS %d', S.id(kZoom)));
 modelTag = siteModel;  if siteModel == "metal", modelTag = metalName; end
-fileTag  = sprintf('section%+d_%s', sectionId, modelTag);  % e.g. section-4_platinum
+if siteModel == "ideal", modelTag = "ideal " + metalName; end
+fileTag  = sprintf('%s_section%+d_%s', paramSet, sectionId, strrep(modelTag, " ", "-"));  % e.g. PW6_section-4_ideal-gold
 exportgraphics(gcf, fullfile(outDir, fileTag + "_geometry.png"));
 
 geo = struct('msh', msh, 'tri', tri, 'xy_mm', xyNodes_mm, 'R', R, 'fasc', fasc, ...
@@ -410,7 +496,7 @@ for fig = findall(0, 'Type', 'figure')'
     if exist('theme', 'file'), theme(fig, "light"); end
 end
 
-save(fullfile(outDir, fileTag + ".mat"), 'sectionId', 'siteModel', 'metalName', 'S', 'fasc', ...
+save(fullfile(outDir, fileTag + ".mat"), 'paramSet', 'params', 'sectionId', 'siteModel', 'metalName', 'S', 'fasc', ...
      'tPeri', 'R', 'Rmed', 'Iline_Apm', 'msh', 'V', 'Ex', 'Ey', 'Vsite', 'bipolarPairs', 'Vb', ...
      'Exb', 'Eyb', 'cfgLabel', 'meanEendo', 'faceTissue', 'faceFasc', 'faceSite');
 fprintf('\nDone. Figures and data in %s (files %s_*)\n', outDir, fileTag);
