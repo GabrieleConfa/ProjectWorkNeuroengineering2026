@@ -39,6 +39,13 @@ p.electrode.thicknessOverride_m = 50 * um;        % gold contacts 50 x 200 x 200
                                                   % overrides the 5 um of sites.mat
 p.electrode.material = "gold";
 p.electrode.cuffPlacement = "surface";            % cuff centre at R + thickness/2, no squeeze
+% [NOT IN PW6] shape of the cuff contacts in the cross-section:
+%   "conforming" - curved strip following the nerve: inner face ON the nerve circle (r = R),
+%                  outer face at r = R + thickness, arc length of the inner face = sideXY
+%                  (200 um). A real cuff is flexible and wraps the nerve; a flat face would
+%                  touch the round nerve at one point only and create sliver elements there.
+%   "flat"       - the box of sites.mat (flat face tangent to the nerve), for comparison.
+p.electrode.cuffShape = "conforming";
 p.electrode.siteModel = "ideal";                  % gold = ideal contact boundary (equipotential),
                                                   % no bulk gold conductivity in the mesh
 % [NOT IN PW6] idle contacts: insulating holes. Stimulation: each contact monopolar against
