@@ -33,11 +33,12 @@
 % how each contact spreads current among the fascicles.
 %
 % Units: SI inside the code (m, S/m, A, V); mm only in the plots.
-% Run from the project root:   setup_paths; main_pipeline
+% Run: press Run in the editor, or type main_pipeline (the script adds the project paths itself).
 
 clear; close all; clc;
 mm = 1e-3;
 root   = fileparts(fileparts(fileparts(mfilename('fullpath'))));   % project root
+addpath(root);  setup_paths;                               % src/, config/ on the path
 outDir = fullfile(root, 'results', 'main');
 if ~exist(outDir, 'dir'), mkdir(outDir); end
 
