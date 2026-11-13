@@ -12,6 +12,7 @@ Architecture: [docs/architecture.md](docs/architecture.md) ·
 Work plan: [docs/work_plan.md](docs/work_plan.md) ·
 Parameters: [docs/parameters.md](docs/parameters.md) ·
 Decisions: [docs/decisions.md](docs/decisions.md) ·
+3D model explained: [docs/model_3d.md](docs/model_3d.md) ·
 Meetings: [docs/meetings/](docs/meetings/) ·
 Paper notes: [docs/literature/](docs/literature/)
 
