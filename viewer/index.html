@@ -1,0 +1,1132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nerve 3D Viewer</title>
+<!--
+  Interactive 3D viewer of the solved median-nerve model (project work, Neuroengineering).
+  Data: written by scripts/export_viewer_data.m into results/viewer/<patient>/ (geometry.js + AS<k>.js).
+  Open this file directly in Chrome / Edge / Firefox (no server needed). Options in the URL:
+    index.html?patient=UA01            which exported patient to load (default UA01)
+    index.html?data=some/folder/       load the data from another folder (must end with /)
+  Libraries: three.js r147 (MIT), vendored in viewer/vendor/ so the page also works offline.
+  How it works: docs/model_3d.md, section 8.2.
+-->
+<style>
+  :root {
+    --bg: #000;
+    --panel: rgba(12, 16, 22, 0.82);
+    --panel-border: rgba(120, 200, 255, 0.18);
+    --text: #d8e6f0;
+    --muted: #7d8fa0;
+    --accent: #5fd4ff;
+    --accent-2: #ffcc55;
+    --btn: rgba(255, 255, 255, 0.06);
+    --btn-on: rgba(95, 212, 255, 0.22);
+  }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 12px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+  canvas#c { display: block; width: 100vw; height: 100vh; outline: none; }
+  .glass { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px;
+    backdrop-filter: blur(6px); }
+  #title { position: fixed; left: 16px; top: 14px; padding: 8px 12px; max-width: 46vw; }
+  #title b { color: var(--accent); font-size: 14px; }
+  #title .sub { color: var(--muted); margin-top: 2px; }
+  #panel { position: fixed; right: 16px; top: 14px; width: 272px; max-height: calc(100vh - 28px);
+    overflow-y: auto; padding: 10px 12px; }
+  #panel h3 { margin: 10px 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--muted); font-weight: 600; }
+  #panel h3:first-child { margin-top: 0; }
+  #panel section { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px; margin-top: 6px; }
+  #panel section:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+  label.line { display: grid; grid-template-columns: 70px 1fr auto; align-items: center; gap: 6px; margin: 4px 0; }
+  label.line span.val { color: var(--muted); min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+  select, input[type=number] { width: 100%; box-sizing: border-box; background: #0b1016; color: var(--text);
+    border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; padding: 3px 5px; font: inherit; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  input[type=checkbox] { accent-color: var(--accent); vertical-align: -2px; }
+  button { background: var(--btn); color: var(--text); border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 6px; padding: 4px 8px; font: inherit; cursor: pointer; }
+  button:hover { border-color: var(--accent); }
+  button.on { background: var(--btn-on); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .35; cursor: default; }
+  #btnStim { width: 100%; margin: 6px 0; padding: 8px; font-size: 13px; font-weight: 600; }
+  #btnStim.on { background: rgba(255, 120, 60, 0.28); border-color: #ff8a50; }
+  .seg { display: flex; gap: 4px; margin: 4px 0; }
+  .seg button { flex: 1; }
+  .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin: 4px 0; }
+  .stations { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin: 6px 0 2px; }
+  .stations button { padding: 3px 0; font-variant-numeric: tabular-nums; }
+  kbd { font: 10px ui-monospace, Consolas, monospace; color: var(--muted); border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 3px; padding: 0 3px; margin-left: 2px; }
+  .hint { color: var(--muted); font-size: 11px; margin: 4px 0; }
+  #colorbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; padding: 8px 12px 6px;
+    width: min(440px, calc(100vw - 32px)); box-sizing: border-box; display: none; }
+  #colorbar .cbTitle { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  #colorbar .cbTitle b { color: #fff; }
+  #colorbar canvas { width: 100%; height: 12px; border-radius: 3px; display: block; }
+  #colorbar .ticks { display: flex; justify-content: space-between; color: var(--muted); margin-top: 2px;
+    font-variant-numeric: tabular-nums; }
+  #tooltip { position: fixed; pointer-events: none; padding: 6px 9px; display: none; max-width: 300px;
+    white-space: pre-line; z-index: 5; }
+  #help { position: fixed; left: 16px; bottom: 16px; padding: 10px 14px; display: none; max-width: 360px; }
+  #help table { border-collapse: collapse; }
+  #help td { padding: 1px 8px 1px 0; vertical-align: top; }
+  #help td:first-child { white-space: nowrap; }
+  #helpBtn { position: fixed; left: 16px; bottom: 16px; }
+  #msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  #msg div { padding: 14px 18px; max-width: 520px; pointer-events: auto; }
+  #msg code { color: var(--accent-2); }
+  @media (max-width: 720px) {
+    #panel { width: auto; left: 16px; top: auto; bottom: 16px; max-height: 45vh; }
+    #title { max-width: calc(100vw - 32px); }
+    #colorbar { bottom: calc(45vh + 28px); }
+  }
+</style>
+</head>
+<body>
+<canvas id="c" tabindex="0"></canvas>
+
+<div id="title" class="glass"><b>Nerve 3D viewer</b><div class="sub" id="subtitle">loading…</div></div>
+
+<div id="panel" class="glass" hidden>
+  <section>
+    <h3>Stimulation</h3>
+    <label class="line">Contact <select id="selSite"></select><span></span></label>
+    <button id="btnStim">▶ Stimulate <kbd>Space</kbd></button>
+    <div class="seg" id="segQ">
+      <button data-q="V" title="potential">V</button>
+      <button data-q="E" title="electric field magnitude">|E|</button>
+      <button data-q="J" title="current density magnitude">|J|</button>
+    </div>
+    <label class="line">Current <input id="inI" type="number" min="0.01" step="any" value="1"><span class="val">µA</span></label>
+    <label class="line">Window lo <input id="rLo" type="range" min="0" max="0.98" step="0.01"><span class="val" id="vLo"></span></label>
+    <label class="line">Window hi <input id="rHi" type="range" min="0.02" max="1" step="0.01"><span class="val" id="vHi"></span></label>
+    <label class="line">Glow <input id="rOp" type="range" min="0.05" max="6" step="0.05" value="2"><span class="val" id="vOp"></span></label>
+    <label class="line">Colours <select id="selCmap"><option value="turbo">turbo</option><option value="inferno">inferno</option></select><span></span></label>
+    <div class="checks"><label><input type="checkbox" id="cbPulse"> pulse train <kbd>P</kbd></label></div>
+  </section>
+  <section>
+    <h3>Dissection</h3>
+    <div class="seg" id="segCut">
+      <button data-c="none">None</button>
+      <button data-c="transverse">Transverse</button>
+      <button data-c="longitudinal">Longit.</button>
+    </div>
+    <label class="line" id="lZ">z <input id="rZ" type="range" step="0.05"><span class="val" id="vZ"></span></label>
+    <label class="line" id="lAng">angle <input id="rAng" type="range" min="0" max="179" step="1"><span class="val" id="vAng"></span></label>
+    <label class="line" id="lOff">offset <input id="rOff" type="range" step="0.01"><span class="val" id="vOff"></span></label>
+    <div class="checks">
+      <label><input type="checkbox" id="cbFlip"> flip side <kbd>F</kbd></label>
+      <label title="contacts are never cut away"><input type="checkbox" id="cbElec" checked> keep contacts</label>
+    </div>
+    <div class="hint">Jump to the cross-section through a station:</div>
+    <div class="stations" id="stations"></div>
+  </section>
+  <section>
+    <h3>Show</h3>
+    <div class="checks">
+      <label><input type="checkbox" id="cbNerve" checked> nerve</label>
+      <label><input type="checkbox" id="cbFasc" checked> fascicles</label>
+      <label><input type="checkbox" id="cbCuff" checked> cuff</label>
+      <label><input type="checkbox" id="cbCont" checked> contacts</label>
+      <label><input type="checkbox" id="cbLabels" checked> labels</label>
+      <label title="whole 70 mm model instead of the electrode zone"><input type="checkbox" id="cbFull"> full length <kbd>L</kbd></label>
+    </div>
+    <div class="seg"><button id="btnReset">Reset view <kbd>R</kbd></button></div>
+  </section>
+</div>
+
+<div id="colorbar" class="glass">
+  <div class="cbTitle"><span id="cbName"></span><span id="cbInfo"></span></div>
+  <canvas id="cbCanvas" width="512" height="12"></canvas>
+  <div class="ticks" id="cbTicks"></div>
+</div>
+
+<div id="tooltip" class="glass"></div>
+<button id="helpBtn" class="glass">? keys</button>
+<div id="help" class="glass">
+  <table>
+    <tr><td>left drag</td><td>rotate</td></tr>
+    <tr><td>right drag / shift+drag</td><td>pan</td></tr>
+    <tr><td>wheel</td><td>zoom</td></tr>
+    <tr><td>hover a contact</td><td>its position and resistance</td></tr>
+    <tr><td>click a contact</td><td>select it and stimulate (solved contacts only)</td></tr>
+    <tr><td><kbd>Space</kbd> / <kbd>H</kbd></td><td>stimulation (heatmap) on / off</td></tr>
+    <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>previous / next solved contact</td></tr>
+    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>show V, |E|, |J|</td></tr>
+    <tr><td><kbd>C</kbd></td><td>cut: none → transverse → longitudinal</td></tr>
+    <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>move the cut</td></tr>
+    <tr><td><kbd>F</kbd></td><td>flip the side that is cut away</td></tr>
+    <tr><td><kbd>P</kbd> <kbd>M</kbd> <kbd>L</kbd> <kbd>R</kbd></td><td>pulse train, colours, full length, reset view</td></tr>
+  </table>
+  <div class="hint">Fields are computed once (quasi-static, linear): changing the current only rescales the colour bar.
+    The pulse train is an illustration of I(t); the field follows it instantly.</div>
+</div>
+
+<div id="msg"></div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script>
+'use strict';
+
+/* ======================================================================================
+   Data loading. The exported files call NV.setModel(...) and NV.addField(...).
+   ====================================================================================== */
+const NV = { model: null, fields: {} };
+NV.setModel = (m) => { NV.model = m; };
+NV.addField = (f) => { NV.fields[f.id] = f; };
+
+const urlParams = new URLSearchParams(location.search);
+const PATIENT = urlParams.get('patient') || 'UA01';
+const DATA_DIR = urlParams.get('data') || `../results/viewer/${PATIENT}/`;
+
+function loadScript(src) {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error(`cannot load ${src}`));
+    document.head.appendChild(s);
+  });
+}
+
+function showMessage(html) {
+  document.getElementById('msg').innerHTML = html ? `<div class="glass">${html}</div>` : '';
+}
+
+/* ======================================================================================
+   Colour maps (polynomial fits, the same in GLSL and in JS for the colour bar).
+   ====================================================================================== */
+const GLSL_CMAPS = `
+vec3 turbo(float x) {
+  const vec4 kr = vec4(0.13572138, 4.61539260, -42.66032258, 132.13108234);
+  const vec4 kg = vec4(0.09140261, 2.19418839, 4.84296658, -14.18503333);
+  const vec4 kb = vec4(0.10667330, 12.64194608, -60.58204836, 110.36276771);
+  const vec2 kr2 = vec2(-152.94239396, 59.28637943);
+  const vec2 kg2 = vec2(4.27729857, 2.82956604);
+  const vec2 kb2 = vec2(-89.90310912, 27.34824973);
+  x = clamp(x, 0.0, 1.0);
+  vec4 v4 = vec4(1.0, x, x * x, x * x * x);
+  vec2 v2 = v4.zw * v4.z;
+  return clamp(vec3(dot(v4, kr) + dot(v2, kr2), dot(v4, kg) + dot(v2, kg2), dot(v4, kb) + dot(v2, kb2)), 0.0, 1.0);
+}
+vec3 inferno(float t) {
+  const vec3 c0 = vec3(0.0002189403691192265, 0.001651004631001012, -0.01948089843709184);
+  const vec3 c1 = vec3(0.1065134194856116, 0.5639564367884091, 3.932712388889277);
+  const vec3 c2 = vec3(11.60249308247187, -3.972853965665698, -15.9423941062914);
+  const vec3 c3 = vec3(-41.70399613139459, 17.43639888205313, 44.35414519872813);
+  const vec3 c4 = vec3(77.162935699427, -33.40235894210092, -81.80730925738993);
+  const vec3 c5 = vec3(-71.31942824499214, 32.62606426397723, 73.20951985803202);
+  const vec3 c6 = vec3(25.13112622477341, -12.24266895238567, -23.07032500287172);
+  t = clamp(t, 0.0, 1.0);
+  return clamp(c0 + t * (c1 + t * (c2 + t * (c3 + t * (c4 + t * (c5 + t * c6))))), 0.0, 1.0);
+}
+uniform int uCmap;
+vec3 cmap(float s) { return uCmap == 0 ? turbo(s) : inferno(s); }
+`;
+
+function cmapJS(name, x) {
+  x = Math.min(Math.max(x, 0), 1);
+  let c;
+  if (name === 'turbo') {
+    const v4 = [1, x, x * x, x * x * x], v2 = [x * x * x * x, x * x * x * x * x];
+    const d4 = (k) => k[0] * v4[0] + k[1] * v4[1] + k[2] * v4[2] + k[3] * v4[3];
+    const d2 = (k) => k[0] * v2[0] + k[1] * v2[1];
+    c = [d4([0.13572138, 4.61539260, -42.66032258, 132.13108234]) + d2([-152.94239396, 59.28637943]),
+         d4([0.09140261, 2.19418839, 4.84296658, -14.18503333]) + d2([4.27729857, 2.82956604]),
+         d4([0.10667330, 12.64194608, -60.58204836, 110.36276771]) + d2([-89.90310912, 27.34824973])];
+  } else {
+    const C = [[0.0002189403691192265, 0.001651004631001012, -0.01948089843709184],
+               [0.1065134194856116, 0.5639564367884091, 3.932712388889277],
+               [11.60249308247187, -3.972853965665698, -15.9423941062914],
+               [-41.70399613139459, 17.43639888205313, 44.35414519872813],
+               [77.162935699427, -33.40235894210092, -81.80730925738993],
+               [-71.31942824499214, 32.62606426397723, 73.20951985803202],
+               [25.13112622477341, -12.24266895238567, -23.07032500287172]];
+    c = [0, 1, 2].map((k) => { let v = C[6][k]; for (let i = 5; i >= 0; i--) v = C[i][k] + x * v; return v; });
+  }
+  return c.map((v) => Math.round(255 * Math.min(Math.max(v, 0), 1)));
+}
+
+/* ======================================================================================
+   Viewer state.
+   ====================================================================================== */
+const Q_INFO = {
+  V: { name: 'Potential V', short: 'V' },
+  E: { name: 'Electric field |E|', short: '|E|' },
+  J: { name: 'Current density |J|', short: '|J|' },
+};
+const state = {
+  siteId: null, heatOn: false, quantity: 'V', cmap: 'turbo', current_uA: 1,
+  lo: { V: 0.25, E: 0.60, J: 0.60 }, hi: { V: 1, E: 1, J: 1 }, glow: 2, pulse: false,
+  cut: 'none', cutZ: 0, cutAngle: 90, cutOffset: 0, flip: false, keepContacts: true,
+  show: { nerve: true, fascicles: true, cuff: true, contacts: true, labels: true }, fullLength: false,
+  intensity: 0,
+};
+let VIEW_HALF_ZONE = 14;                 // [mm] half-length of the zone drawn by default (set to the data grid)
+const FASC_COLOURS = ['#ff4d6d', '#ffd166', '#06d6a0', '#4cc9f0', '#b388ff', '#ff8fab', '#f9844a',
+  '#c7f464', '#ff6bd6', '#7bdff2', '#fcbf49', '#80ffdb', '#e5989b', '#a3c4f3', '#ffadad', '#caffbf'];
+const NERVE_COLOUR = '#5fd4ff';
+const CUFF_COLOUR = '#8fa3b8';
+
+let renderer, scene, camera, controls, model, M;
+let focusTarget = null;                   // orbit centre the view is moving to (world coordinates)
+let volumeMesh, sliceMesh, ringGroup, labelGroup;
+const shellMeshes = { nerve: [], fascicles: [], cuff: [] };
+const contactMeshes = [];
+const texCache = {};                      // `${id}:${q}` -> Data3DTexture
+
+/* ======================================================================================
+   Start.
+   ====================================================================================== */
+(async function start() {
+  try {
+    await loadScript(DATA_DIR + 'geometry.js');
+  } catch (e) {
+    showMessage(`No exported data for patient <b>${PATIENT}</b> in <code>${DATA_DIR}</code>.<br><br>
+      Run in MATLAB, from the project root: <code>setup_paths; export_viewer_data</code><br>
+      (it needs <code>results/main3d/${PATIENT}_3d.mat</code> from <code>main_pipeline_3d</code>).`);
+    document.getElementById('subtitle').textContent = 'no data';
+    return;
+  }
+  M = NV.model;
+  VIEW_HALF_ZONE = Math.max(-M.grid.z0, M.grid.z0 + (M.grid.nz - 1) * M.grid.dz) + M.grid.dz / 2;
+  const testCanvas = document.createElement('canvas');
+  if (!testCanvas.getContext('webgl2')) {
+    showMessage('This browser has no WebGL2: the volume rendering needs it (any recent Chrome, Edge or Firefox).');
+    return;
+  }
+  initScene();
+  buildModel();
+  initUI();
+  // optional start state from the URL (handy to open a prepared view in a presentation), e.g.
+  // index.html?site=2&heat=1&q=E&cut=transverse&z=-10.3   or   ?cut=longitudinal&angle=90&offset=0&flip=1
+  const P = (k) => urlParams.get(k);
+  const askedSite = Number(P('site'));
+  const first = M.solvedIds.includes(askedSite) ? askedSite : (M.solvedIds.includes(2) ? 2 : M.solvedIds[0]);
+  if (['V', 'E', 'J'].includes(P('q'))) state.quantity = P('q');
+  if (P('cmap') === 'inferno') state.cmap = 'inferno';
+  if (P('z') !== null) state.cutZ = Number(P('z'));
+  if (P('flip') === '1') state.flip = true;
+  if (P('full') === '1') { state.fullLength = true; $('cbFull').checked = true; buildRingsAndLabels(); resetView(); }
+  await selectSite(first);
+  setCut(['transverse', 'longitudinal'].includes(P('cut')) ? P('cut') : 'none');
+  if (P('angle') !== null) state.cutAngle = Number(P('angle'));
+  if (P('offset') !== null) state.cutOffset = Number(P('offset'));
+  if (P('heat') === '1') { state.heatOn = true; ramp = 1; }   // start already on, no fade-in
+  resetView();
+  updateAll();
+  renderer.setAnimationLoop(animate);
+})();
+
+/* ======================================================================================
+   Scene, camera, controls.
+   ====================================================================================== */
+function initScene() {
+  const canvas = document.getElementById('c');
+  renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  renderer.setClearColor(0x000000, 1);
+  renderer.localClippingEnabled = true;
+  renderer.outputEncoding = THREE.sRGBEncoding;
+
+  scene = new THREE.Scene();
+  camera = new THREE.PerspectiveCamera(38, window.innerWidth / window.innerHeight, 0.05, 2000);
+  controls = new THREE.OrbitControls(camera, canvas);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.screenSpacePanning = true;
+  resetView();
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+  const key = new THREE.DirectionalLight(0xffffff, 1.0);
+  key.position.set(10, 20, 15);
+  scene.add(key);
+  const rim = new THREE.DirectionalLight(0x88ccff, 0.5);
+  rim.position.set(-15, -5, -10);
+  scene.add(rim);
+
+  // Model group in NERVE coordinates [mm] (z = nerve axis). Rotated so that the nerve lies
+  // horizontally on screen: local z -> world x, local y -> world y, local x -> world -z.
+  model = new THREE.Group();
+  model.rotation.y = Math.PI / 2;
+  scene.add(model);
+  model.updateMatrixWorld(true);
+
+  window.addEventListener('resize', () => {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight, false);
+  });
+}
+
+// Default view: the whole drawn range, from the front-left and slightly above. With a contact
+// selected (and not in full-length mode), a closer view centred on its station.
+function resetView() {
+  focusTarget = null;
+  const site = M && state.siteId != null ? M.sites.find((s) => s.id === state.siteId) : null;
+  const close = site && !state.fullLength;
+  const zHalf = state.fullLength && M ? M.nerveLength / 2 : VIEW_HALF_ZONE;
+  const d = close ? 12 : zHalf * 1.9 + 6;
+  const c = close ? model.localToWorld(new THREE.Vector3(0, 0, site.centre[2])) : new THREE.Vector3();
+  camera.position.set(c.x - 0.45 * d, c.y + 0.38 * d, c.z + 0.85 * d);
+  controls.target.copy(c);
+  controls.update();
+}
+
+/* ======================================================================================
+   Materials.
+   ====================================================================================== */
+// Glass-like shell: faint body, bright rim where the surface is seen edge-on. Additive on black.
+function glassMaterial(colour, base, rim) {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(colour) },
+      uBase: { value: base }, uRim: { value: rim }, uOpacity: { value: 1 },
+    },
+    vertexShader: `
+      #include <clipping_planes_pars_vertex>
+      varying vec3 vN;
+      varying vec3 vV;
+      void main() {
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        vN = normalize(normalMatrix * normal);
+        vV = normalize(-mvPosition.xyz);
+        gl_Position = projectionMatrix * mvPosition;
+        #include <clipping_planes_vertex>
+      }`,
+    fragmentShader: `
+      #include <clipping_planes_pars_fragment>
+      uniform vec3 uColor;
+      uniform float uBase, uRim, uOpacity;
+      varying vec3 vN;
+      varying vec3 vV;
+      void main() {
+        #include <clipping_planes_fragment>
+        float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
+        float a = (uBase + uRim * pow(f, 3.0)) * uOpacity;
+        gl_FragColor = vec4(uColor, a);    // additive blending: adds uColor * a
+      }`,
+    transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending, clipping: true,
+  });
+}
+
+/* ======================================================================================
+   Geometry of the model (analytic: the 3D model is one cross-section extruded along z).
+   ====================================================================================== */
+function tube(r, x, y, z0, z1, segments = 128) {
+  const g = new THREE.CylinderGeometry(r, r, z1 - z0, segments, 1, true);
+  g.rotateX(Math.PI / 2);                  // cylinder axis y -> z
+  g.translate(x, y, (z0 + z1) / 2);
+  return g;
+}
+
+function buildModel() {
+  const R = M.nerveRadius, L = M.nerveLength;
+  // nerve and fascicle shells, full length (the view range is set with clipping planes)
+  const nerve = new THREE.Mesh(tube(R, 0, 0, -L / 2, L / 2, 160), glassMaterial(NERVE_COLOUR, 0.025, 0.55));
+  nerve.renderOrder = 1;
+  model.add(nerve);
+  shellMeshes.nerve.push(nerve);
+  M.fascicles.forEach((f, i) => {
+    f.colour = FASC_COLOURS[i % FASC_COLOURS.length];
+    const m = new THREE.Mesh(tube(f.r, f.x, f.y, -L / 2, L / 2, 96), glassMaterial(f.colour, 0.06, 0.75));
+    m.renderOrder = 1;
+    model.add(m);
+    shellMeshes.fascicles.push(m);
+  });
+  // cuff: inner and outer wall + end annuli
+  const Lc = M.cuff.length, Rc = R + M.cuff.wall;
+  const cuffMat = glassMaterial(CUFF_COLOUR, 0.02, 0.3);
+  [tube(R + 0.002, 0, 0, -Lc / 2, Lc / 2), tube(Rc, 0, 0, -Lc / 2, Lc / 2)].forEach((g) => {
+    const m = new THREE.Mesh(g, cuffMat);
+    m.renderOrder = 1;
+    model.add(m);
+    shellMeshes.cuff.push(m);
+  });
+  [-1, 1].forEach((s) => {
+    const g = new THREE.RingGeometry(R, Rc, 128, 1);
+    g.translate(0, 0, s * Lc / 2);
+    const m = new THREE.Mesh(g, cuffMat);
+    m.renderOrder = 1;
+    model.add(m);
+    shellMeshes.cuff.push(m);
+  });
+
+  // contacts: boxes thickness x sideXY x sideZ along (n, w, z)
+  const ez = new THREE.Vector3(0, 0, 1);
+  M.sites.forEach((s) => {
+    const g = new THREE.BoxGeometry(s.thickness, s.sideXY, s.sideZ);
+    const mat = new THREE.MeshStandardMaterial({
+      color: s.solved ? 0xffcc55 : 0x9c7d3a, metalness: 0.75, roughness: 0.3,
+      emissive: s.solved ? 0x553300 : 0x1a1000, transparent: true, opacity: 1, depthWrite: true,
+    });
+    const mesh = new THREE.Mesh(g, mat);
+    const n = new THREE.Vector3(...s.n), w = new THREE.Vector3(...s.w);
+    mesh.matrixAutoUpdate = false;
+    mesh.matrix.makeBasis(n, w, ez).setPosition(s.centre[0], s.centre[1], s.centre[2]);
+    mesh.renderOrder = 10;               // after the volume, so the electrode stays visible in the glow
+    mesh.userData.site = s;
+    model.add(mesh);
+    contactMeshes.push(mesh);
+  });
+
+  buildVolume();
+  buildSlice();
+  ringGroup = new THREE.Group();
+  model.add(ringGroup);
+  labelGroup = new THREE.Group();
+  model.add(labelGroup);
+  buildRingsAndLabels();
+  model.updateMatrixWorld(true);
+
+  const p = M.patient;
+  document.getElementById('subtitle').innerHTML =
+    `Patient ${p.id} (seed ${p.seed}, ${p.level}) · ${M.fascicles.length} fascicles · R = ${R.toFixed(2)} mm · ` +
+    `${M.solvedIds.length} of ${M.sites.length} contacts solved<br>monopolar, return = grounded outer boundary`;
+}
+
+function viewHalf() { return state.fullLength ? M.nerveLength / 2 : VIEW_HALF_ZONE; }
+
+function buildRingsAndLabels() {
+  ringGroup.clear();
+  labelGroup.clear();
+  const zv = viewHalf(), R = M.nerveRadius;
+  const circle = (r, x, y, z, colour, opacity) => {
+    const pts = [];
+    for (let k = 0; k < 128; k++) {
+      const a = 2 * Math.PI * k / 128;
+      pts.push(new THREE.Vector3(x + r * Math.cos(a), y + r * Math.sin(a), z));
+    }
+    const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: colour, transparent: true, opacity }));
+    return line;
+  };
+  [-zv, zv].forEach((z) => {
+    const nr = circle(R, 0, 0, z, NERVE_COLOUR, 0.8);
+    nr.userData.kind = 'nerve';
+    ringGroup.add(nr);
+    M.fascicles.forEach((f) => {
+      const fr = circle(f.r, f.x, f.y, z, f.colour, 0.9);
+      fr.userData.kind = 'fascicles';
+      ringGroup.add(fr);
+    });
+  });
+  // fascicle labels at the right end, station labels above the nerve
+  M.fascicles.forEach((f, i) => {
+    const sp = textSprite(`F${i + 1}`, f.colour, 0.42);
+    sp.position.set(f.x, f.y, zv + 0.5);
+    labelGroup.add(sp);
+  });
+  const stations = [...new Set(M.sites.map((s) => s.section))].sort((a, b) => a - b);
+  stations.forEach((sec) => {
+    const z = M.sites.find((s) => s.section === sec).centre[2];
+    const sp = textSprite(`${sec > 0 ? '+' : ''}${sec}`, '#9fb3c8', 0.36);
+    sp.position.set(0, R + M.cuff.wall + 0.45, z);
+    labelGroup.add(sp);
+  });
+}
+
+function textSprite(text, colour, height) {
+  const c = document.createElement('canvas');
+  const ctx = c.getContext('2d');
+  const fs = 64;
+  ctx.font = `600 ${fs}px system-ui, Segoe UI, sans-serif`;
+  c.width = Math.ceil(ctx.measureText(text).width) + 16;
+  c.height = fs + 16;
+  ctx.font = `600 ${fs}px system-ui, Segoe UI, sans-serif`;
+  ctx.fillStyle = colour;
+  ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(0,0,0,0.9)';
+  ctx.shadowBlur = 8;
+  ctx.fillText(text, 8, c.height / 2);
+  const tex = new THREE.CanvasTexture(c);
+  tex.encoding = THREE.sRGBEncoding;
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthTest: false, transparent: true }));
+  sp.scale.set(height * c.width / c.height, height, 1);
+  sp.renderOrder = 20;
+  return sp;
+}
+
+/* ======================================================================================
+   Volume rendering of the field (ray marching through a 3D texture, inside the nerve only).
+   ====================================================================================== */
+function gridBox() {
+  const g = M.grid;
+  const min = new THREE.Vector3(g.x0 - g.dx / 2, g.y0 - g.dy / 2, g.z0 - g.dz / 2);
+  const max = new THREE.Vector3(g.x0 + (g.nx - 0.5) * g.dx, g.y0 + (g.ny - 0.5) * g.dy, g.z0 + (g.nz - 0.5) * g.dz);
+  return { min, max };
+}
+
+function buildVolume() {
+  const { min, max } = gridBox();
+  const size = new THREE.Vector3().subVectors(max, min);
+  const g = new THREE.BoxGeometry(size.x, size.y, size.z);
+  g.translate((min.x + max.x) / 2, (min.y + max.y) / 2, (min.z + max.z) / 2);
+  const placeholder = new THREE.Data3DTexture(new Uint8Array([0]), 1, 1, 1);
+  placeholder.format = THREE.RedFormat;
+  placeholder.needsUpdate = true;
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uData: { value: placeholder }, uBoxMin: { value: min }, uBoxMax: { value: max },
+      uCam: { value: new THREE.Vector3() }, uR: { value: M.nerveRadius },
+      uLo: { value: 0.3 }, uHi: { value: 1 }, uOpacity: { value: 1 }, uIntensity: { value: 0 },
+      uZmin: { value: -VIEW_HALF_ZONE }, uZmax: { value: VIEW_HALF_ZONE }, uCmap: { value: 0 },
+      uCutOn: { value: false }, uCut: { value: new THREE.Vector4(0, 0, 1, 0) },
+    },
+    vertexShader: `
+      varying vec3 vLocal;
+      void main() {
+        vLocal = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      precision highp sampler3D;
+      varying vec3 vLocal;
+      uniform sampler3D uData;
+      uniform vec3 uBoxMin, uBoxMax, uCam;
+      uniform float uR, uLo, uHi, uOpacity, uIntensity, uZmin, uZmax;
+      uniform bool uCutOn;
+      uniform vec4 uCut;                 // cut away where dot(uCut.xyz, p) > uCut.w
+      ${GLSL_CMAPS}
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+      void main() {
+        vec3 o = uCam;
+        vec3 d = normalize(vLocal - uCam);
+        vec3 inv = 1.0 / d;
+        vec3 t0 = (uBoxMin - o) * inv, t1 = (uBoxMax - o) * inv;
+        vec3 tmn = min(t0, t1), tmx = max(t0, t1);
+        float tn = max(max(max(tmn.x, tmn.y), tmn.z), 0.0);
+        float tf = min(min(tmx.x, tmx.y), tmx.z);
+        if (uCutOn) {
+          // the cut face is opaque inside the nerve: nothing behind it is visible
+          float dn = dot(uCut.xyz, d);
+          if (abs(dn) > 1e-6) {
+            float tc = (uCut.w - dot(uCut.xyz, o)) / dn;
+            vec3 pc = o + tc * d;
+            if (tc > tn && tc < tf && dot(pc.xy, pc.xy) < uR * uR && pc.z > uZmin && pc.z < uZmax) tf = tc;
+          }
+        }
+        if (tn >= tf || uIntensity <= 0.0) discard;
+        float dt = max((tf - tn) / 480.0, 0.012);
+        float t = tn + dt * hash(gl_FragCoord.xy);
+        vec4 acc = vec4(0.0);
+        for (int i = 0; i < 720; i++) {
+          if (t > tf || acc.a > 0.97) break;
+          vec3 p = o + t * d;
+          t += dt;
+          if (dot(p.xy, p.xy) > uR * uR || p.z < uZmin || p.z > uZmax) continue;
+          if (uCutOn && dot(uCut.xyz, p) > uCut.w) continue;
+          float c = texture(uData, (p - uBoxMin) / (uBoxMax - uBoxMin)).r * 255.0;
+          if (c < 0.5) continue;
+          float s = clamp(((c - 1.0) / 254.0 - uLo) / max(uHi - uLo, 1e-4), 0.0, 1.0);
+          if (s <= 0.0) continue;
+          float a = 1.0 - exp(-uOpacity * uIntensity * pow(s, 1.5) * dt * 14.0);
+          acc.rgb += (1.0 - acc.a) * a * cmap(s);
+          acc.a += (1.0 - acc.a) * a;
+        }
+        if (acc.a < 0.002) discard;
+        gl_FragColor = vec4(acc.rgb / acc.a, acc.a);
+      }`,
+    side: THREE.BackSide, transparent: true, depthWrite: false, depthTest: false,
+  });
+  volumeMesh = new THREE.Mesh(g, mat);
+  volumeMesh.renderOrder = 5;
+  volumeMesh.frustumCulled = false;
+  model.add(volumeMesh);
+}
+
+/* ======================================================================================
+   Cut face: an opaque plane that shows the tissues (and the heatmap) where the nerve is cut.
+   ====================================================================================== */
+function buildSlice() {
+  const { min, max } = gridBox();
+  const fasc = [], cols = [];
+  for (let i = 0; i < 32; i++) {
+    const f = M.fascicles[i];
+    fasc.push(f ? new THREE.Vector3(f.x, f.y, f.r) : new THREE.Vector3(1e3, 1e3, 0));
+    cols.push(f ? new THREE.Color(f.colour) : new THREE.Color(0, 0, 0));
+  }
+  const placeholder = volumeMesh.material.uniforms.uData.value;
+  const mat = new THREE.ShaderMaterial({
+    uniforms: {
+      uData: { value: placeholder }, uHeat: { value: false }, uIntensity: { value: 0 },
+      uBoxMin: { value: min }, uBoxMax: { value: max }, uR: { value: M.nerveRadius },
+      uWall: { value: M.cuff.wall }, uCuffHalf: { value: M.cuff.length / 2 },
+      uLo: { value: 0.3 }, uHi: { value: 1 }, uCmap: { value: 0 },
+      uFasc: { value: fasc }, uFascCol: { value: cols }, uNF: { value: M.fascicles.length },
+      uNerveCol: { value: new THREE.Color(NERVE_COLOUR) },
+    },
+    vertexShader: `
+      varying vec3 vLocal;
+      void main() {
+        vLocal = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }`,
+    fragmentShader: `
+      precision highp sampler3D;
+      varying vec3 vLocal;
+      uniform sampler3D uData;
+      uniform bool uHeat;
+      uniform float uIntensity, uR, uWall, uCuffHalf, uLo, uHi;
+      uniform vec3 uBoxMin, uBoxMax, uNerveCol;
+      uniform vec3 uFasc[32];
+      uniform vec3 uFascCol[32];
+      uniform int uNF;
+      ${GLSL_CMAPS}
+      float outline(float dist) {          // 1 on a ~1.5 px line where dist = 0
+        float w = fwidth(dist);
+        return 1.0 - smoothstep(0.6 * w, 1.6 * w, abs(dist));
+      }
+      void main() {
+        vec3 p = vLocal;
+        float r = length(p.xy);
+        if (r > uR) {
+          if (r < uR + uWall && abs(p.z) < uCuffHalf) { gl_FragColor = vec4(0.16, 0.19, 0.23, 1.0); return; }
+          discard;
+        }
+        vec3 col = vec3(0.07, 0.09, 0.11);     // epineurium
+        float edge = outline(uR - r);
+        vec3 edgeCol = uNerveCol;
+        for (int i = 0; i < 32; i++) {
+          if (i >= uNF) break;
+          float dd = length(p.xy - uFasc[i].xy) - uFasc[i].z;
+          if (dd < 0.0) col = uFascCol[i] * 0.32;   // endoneurium of fascicle i
+          float e = outline(dd);                     // perineurium
+          if (e > edge) { edge = e; edgeCol = uFascCol[i]; }
+        }
+        if (uHeat && uIntensity > 0.0) {
+          vec3 uvw = (p - uBoxMin) / (uBoxMax - uBoxMin);
+          if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0)))) {
+            float c = texture(uData, uvw).r * 255.0;
+            if (c >= 0.5) {
+              float s = clamp(((c - 1.0) / 254.0 - uLo) / max(uHi - uLo, 1e-4), 0.0, 1.0);
+              col = mix(col, cmap(s), 0.95 * uIntensity);
+            }
+          }
+        }
+        col = mix(col, mix(edgeCol, vec3(1.0), 0.35), edge * 0.9);
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+    side: THREE.DoubleSide,
+  });
+  sliceMesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+  sliceMesh.frustumCulled = false;
+  sliceMesh.visible = false;
+  model.add(sliceMesh);
+}
+
+// Cut plane in nerve coordinates: the side where dot(n, p) > d is cut away.
+function cutPlaneLocal() {
+  const s = state.flip ? -1 : 1;
+  if (state.cut === 'transverse') return { n: new THREE.Vector3(0, 0, s), d: s * state.cutZ };
+  const a = state.cutAngle * Math.PI / 180;
+  const m = new THREE.Vector3(-Math.sin(a), Math.cos(a), 0);   // normal of the longitudinal plane
+  return { n: m.multiplyScalar(s), d: s * state.cutOffset };
+}
+
+function updateCut() {
+  const on = state.cut !== 'none';
+  const zv = viewHalf();
+  const vu = volumeMesh.material.uniforms;
+  vu.uZmin.value = -zv;
+  vu.uZmax.value = zv;
+  vu.uCutOn.value = on;
+
+  // world-space clipping planes for the shells (three.js keeps the side where n.x + c >= 0)
+  const toWorld = (n, c) => new THREE.Plane(n.clone(), c).applyMatrix4(model.matrixWorld);
+  const planes = state.fullLength ? [] : [toWorld(new THREE.Vector3(0, 0, 1), zv), toWorld(new THREE.Vector3(0, 0, -1), zv)];
+  const shellPlanes = planes.slice();
+  if (on) {
+    const { n, d } = cutPlaneLocal();
+    vu.uCut.value.set(n.x, n.y, n.z, d);
+    shellPlanes.push(toWorld(n.clone().negate(), d));          // keep dot(n,p) <= d
+
+    // slice quad on the cut plane
+    const h = M.nerveRadius + M.cuff.wall + 0.05;
+    let corners;
+    if (state.cut === 'transverse') {
+      const z = state.cutZ;
+      corners = [[-h, -h, z], [h, -h, z], [h, h, z], [-h, h, z]];
+    } else {
+      const a = state.cutAngle * Math.PI / 180;
+      const u = [Math.cos(a), Math.sin(a)], m = [-Math.sin(a), Math.cos(a)], o = state.cutOffset;
+      const P = (su, z) => [o * m[0] + su * h * u[0], o * m[1] + su * h * u[1], z];
+      corners = [P(-1, -zv), P(1, -zv), P(1, zv), P(-1, zv)];
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(corners.flat(), 3));
+    geo.setIndex([0, 1, 2, 0, 2, 3]);
+    sliceMesh.geometry.dispose();
+    sliceMesh.geometry = geo;
+  }
+  sliceMesh.visible = on;
+  [...shellMeshes.nerve, ...shellMeshes.fascicles, ...shellMeshes.cuff].forEach((m) => {
+    m.material.clippingPlanes = shellPlanes;
+  });
+  const contactPlanes = on && !state.keepContacts ? shellPlanes.slice(planes.length) : [];
+  contactMeshes.forEach((m) => { m.material.clippingPlanes = contactPlanes; });
+  ringGroup.children.forEach((l) => { l.material.clippingPlanes = on ? shellPlanes.slice(planes.length) : []; });
+}
+
+/* ======================================================================================
+   Fields: lazy loading of AS<k>.js, decoding, 3D textures.
+   ====================================================================================== */
+async function ensureField(id) {
+  if (!NV.fields[id]) {
+    document.getElementById('cbInfo').textContent = 'loading…';
+    await loadScript(`${DATA_DIR}AS${id}.js`);
+  }
+  return NV.fields[id];
+}
+
+function fieldTexture(id, q) {
+  const key = `${id}:${q}`;
+  if (texCache[key]) return texCache[key];
+  const f = NV.fields[id];
+  const bin = atob(f.data[q]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const g = M.grid;
+  const tex = new THREE.Data3DTexture(bytes, g.nx, g.ny, g.nz);
+  tex.format = THREE.RedFormat;
+  tex.type = THREE.UnsignedByteType;
+  tex.minFilter = THREE.LinearFilter;
+  tex.magFilter = THREE.LinearFilter;
+  tex.unpackAlignment = 1;
+  tex.needsUpdate = true;
+  texCache[key] = tex;
+  return tex;
+}
+
+async function selectSite(id) {
+  const s = M.sites.find((x) => x.id === id);
+  if (!s || !s.solved) return;
+  state.siteId = id;
+  document.getElementById('selSite').value = String(id);
+  // rotate around the selected contact's station: move the orbit centre to (0, 0, z) of the nerve
+  focusTarget = model.localToWorld(new THREE.Vector3(0, 0, s.centre[2]));
+  try {
+    await ensureField(id);
+  } catch (e) {
+    showMessage(`Cannot load <code>${DATA_DIR}AS${id}.js</code>. Re-run <code>export_viewer_data</code>.`);
+    return;
+  }
+  updateAll();
+}
+
+/* ======================================================================================
+   UI.
+   ====================================================================================== */
+function $(id) { return document.getElementById(id); }
+
+function initUI() {
+  $('panel').hidden = false;
+  const sel = $('selSite');
+  M.sites.filter((s) => s.solved).forEach((s) => {
+    const o = document.createElement('option');
+    o.value = String(s.id);
+    o.textContent = `AS ${s.id} · ${s.type === 'cuff' ? 'cuff' : 'shank'} · st. ${s.section > 0 ? '+' : ''}${s.section} · ${s.R_kOhm.toFixed(1)} kΩ`;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change', () => selectSite(Number(sel.value)));
+  $('btnStim').addEventListener('click', () => toggleHeat());
+  document.querySelectorAll('#segQ button').forEach((b) => b.addEventListener('click', () => setQuantity(b.dataset.q)));
+  $('inI').addEventListener('input', () => {
+    const v = parseFloat($('inI').value);
+    if (v > 0) { state.current_uA = v; updateColorbar(); }
+  });
+  $('rLo').addEventListener('input', () => {
+    state.lo[state.quantity] = Math.min(+$('rLo').value, state.hi[state.quantity] - 0.02);
+    updateAll();
+  });
+  $('rHi').addEventListener('input', () => {
+    state.hi[state.quantity] = Math.max(+$('rHi').value, state.lo[state.quantity] + 0.02);
+    updateAll();
+  });
+  $('rOp').addEventListener('input', () => { state.glow = +$('rOp').value; updateAll(); });
+  $('selCmap').addEventListener('change', () => { state.cmap = $('selCmap').value; updateAll(); });
+  $('cbPulse').addEventListener('change', () => { state.pulse = $('cbPulse').checked; });
+
+  document.querySelectorAll('#segCut button').forEach((b) => b.addEventListener('click', () => setCut(b.dataset.c)));
+  const zv = M.grid.z0 + (M.grid.nz - 1) * M.grid.dz;
+  $('rZ').min = String(-Math.max(VIEW_HALF_ZONE, -M.grid.z0));
+  $('rZ').max = String(Math.max(VIEW_HALF_ZONE, zv));
+  $('rOff').min = String(-M.nerveRadius);
+  $('rOff').max = String(M.nerveRadius);
+  $('rZ').addEventListener('input', () => { state.cutZ = +$('rZ').value; updateAll(); });
+  $('rAng').addEventListener('input', () => { state.cutAngle = +$('rAng').value; updateAll(); });
+  $('rOff').addEventListener('input', () => { state.cutOffset = +$('rOff').value; updateAll(); });
+  $('cbFlip').addEventListener('change', () => { state.flip = $('cbFlip').checked; updateAll(); });
+  $('cbElec').addEventListener('change', () => { state.keepContacts = $('cbElec').checked; updateAll(); });
+
+  const stations = [...new Set(M.sites.map((s) => s.section))].sort((a, b) => a - b);
+  stations.forEach((sec) => {
+    const z = M.sites.find((s) => s.section === sec).centre[2];
+    const b = document.createElement('button');
+    b.textContent = `${sec > 0 ? '+' : ''}${sec}`;
+    b.title = `station ${sec}, z = ${z.toFixed(1)} mm`;
+    b.addEventListener('click', () => { state.cutZ = z; setCut('transverse'); });
+    $('stations').appendChild(b);
+  });
+
+  const showMap = { cbNerve: 'nerve', cbFasc: 'fascicles', cbCuff: 'cuff', cbCont: 'contacts', cbLabels: 'labels' };
+  Object.entries(showMap).forEach(([cb, key]) => $(cb).addEventListener('change', () => {
+    state.show[key] = $(cb).checked;
+    updateAll();
+  }));
+  $('cbFull').addEventListener('change', () => setFullLength($('cbFull').checked));
+  $('btnReset').addEventListener('click', resetView);
+  $('helpBtn').addEventListener('click', () => toggleHelp());
+  $('help').addEventListener('click', () => toggleHelp(false));
+
+  window.addEventListener('keydown', onKey);
+  initPicking();
+}
+
+function toggleHelp(force) {
+  const h = $('help');
+  const show = force === undefined ? h.style.display !== 'block' : force;
+  h.style.display = show ? 'block' : 'none';
+  $('helpBtn').style.display = show ? 'none' : 'block';
+}
+
+function toggleHeat(force) {
+  state.heatOn = force === undefined ? !state.heatOn : force;
+  updateAll();
+}
+
+function setQuantity(q) { state.quantity = q; updateAll(); }
+
+function setCut(c) {
+  state.cut = c;
+  if (c === 'longitudinal' && state.siteId != null) {
+    // default longitudinal plane: through the nerve axis and the selected contact
+    const s = M.sites.find((x) => x.id === state.siteId);
+    const ang = Math.atan2(s.centre[1], s.centre[0]) * 180 / Math.PI;
+    state.cutAngle = Math.round(((ang % 180) + 180) % 180);
+    state.cutOffset = 0;
+  }
+  updateAll();
+}
+
+function setFullLength(on) {
+  state.fullLength = on;
+  $('cbFull').checked = on;
+  buildRingsAndLabels();
+  resetView();
+  updateAll();
+}
+
+function solvedNeighbour(step) {
+  const ids = M.solvedIds;
+  const k = ids.indexOf(state.siteId);
+  return ids[(k + step + ids.length) % ids.length];
+}
+
+function onKey(e) {
+  if (e.target.tagName === 'INPUT' && e.target.type === 'number') return;
+  if (e.target.tagName === 'SELECT' && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) return;
+  const k = e.key.toLowerCase();
+  let handled = true;
+  if (k === ' ' || k === 'h') toggleHeat();
+  else if (k === 'arrowright') selectSite(solvedNeighbour(1));
+  else if (k === 'arrowleft') selectSite(solvedNeighbour(-1));
+  else if (k === '1') setQuantity('V');
+  else if (k === '2') setQuantity('E');
+  else if (k === '3') setQuantity('J');
+  else if (k === 'c') setCut({ none: 'transverse', transverse: 'longitudinal', longitudinal: 'none' }[state.cut]);
+  else if (k === 'f') { state.flip = !state.flip; updateAll(); }
+  else if (k === 'p') { state.pulse = !state.pulse; $('cbPulse').checked = state.pulse; }
+  else if (k === 'm') { state.cmap = state.cmap === 'turbo' ? 'inferno' : 'turbo'; updateAll(); }
+  else if (k === 'l') setFullLength(!state.fullLength);
+  else if (k === 'r') resetView();
+  else if (k === '?') toggleHelp();
+  else if (k === 'arrowup' || k === 'arrowdown') {
+    const s = k === 'arrowup' ? 1 : -1;
+    if (state.cut === 'transverse') state.cutZ = clampNum(state.cutZ + 0.1 * s, +$('rZ').min, +$('rZ').max);
+    else if (state.cut === 'longitudinal') state.cutOffset = clampNum(state.cutOffset + 0.05 * s, -M.nerveRadius, M.nerveRadius);
+    updateAll();
+  } else handled = false;
+  if (handled) e.preventDefault();
+}
+
+function clampNum(v, a, b) { return Math.min(Math.max(v, a), b); }
+
+/* Hover and click on the contacts. A click is a press + release without dragging. */
+function initPicking() {
+  const ray = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  const canvas = renderer.domElement;
+  const tip = $('tooltip');
+  let down = null;
+  const pick = (ev) => {
+    const r = canvas.getBoundingClientRect();
+    ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+    ray.setFromCamera(ndc, camera);
+    const hits = ray.intersectObjects(contactMeshes.filter((m) => m.visible), false);
+    return hits.length ? hits[0].object.userData.site : null;
+  };
+  canvas.addEventListener('pointermove', (ev) => {
+    if (ev.buttons) { tip.style.display = 'none'; return; }
+    const s = pick(ev);
+    if (!s) { tip.style.display = 'none'; canvas.style.cursor = ''; return; }
+    canvas.style.cursor = s.solved ? 'pointer' : 'default';
+    const z = s.centre[2];
+    tip.textContent =
+      `AS ${s.id} · ${s.type === 'cuff' ? 'cuff contact' : 'shank contact (intraneural)'}\n` +
+      `station ${s.section > 0 ? '+' : ''}${s.section} · z = ${z.toFixed(1)} mm · r = ${Math.hypot(s.centre[0], s.centre[1]).toFixed(2)} mm\n` +
+      (s.solved ? `${s.location}\naccess resistance ${s.R_kOhm.toFixed(2)} kΩ · click to stimulate`
+                : 'not solved yet (no field exported)');
+    tip.style.display = 'block';
+    tip.style.left = `${Math.min(ev.clientX + 14, window.innerWidth - 310)}px`;
+    tip.style.top = `${ev.clientY + 14}px`;
+  });
+  canvas.addEventListener('pointerdown', (ev) => { down = [ev.clientX, ev.clientY]; });
+  canvas.addEventListener('pointerup', (ev) => {
+    if (!down || Math.hypot(ev.clientX - down[0], ev.clientY - down[1]) > 4) return;
+    const s = pick(ev);
+    if (s && s.solved) {
+      if (s.id === state.siteId) toggleHeat();
+      else selectSite(s.id).then(() => toggleHeat(true));
+    }
+  });
+}
+
+/* ======================================================================================
+   Updates.
+   ====================================================================================== */
+function updateAll() {
+  const q = state.quantity;
+  const haveField = state.siteId != null && NV.fields[state.siteId];
+  const tex = haveField ? fieldTexture(state.siteId, q) : null;
+  const vu = volumeMesh.material.uniforms, su = sliceMesh.material.uniforms;
+  if (tex) { vu.uData.value = tex; su.uData.value = tex; }
+  const cm = state.cmap === 'turbo' ? 0 : 1;
+  vu.uLo.value = su.uLo.value = state.lo[q];
+  vu.uHi.value = su.uHi.value = state.hi[q];
+  vu.uCmap.value = su.uCmap.value = cm;
+  vu.uOpacity.value = state.glow;
+  su.uHeat.value = !!tex;
+
+  // panel
+  $('btnStim').classList.toggle('on', state.heatOn);
+  $('btnStim').innerHTML = state.heatOn ? '■ Stop <kbd>Space</kbd>' : '▶ Stimulate <kbd>Space</kbd>';
+  document.querySelectorAll('#segQ button').forEach((b) => b.classList.toggle('on', b.dataset.q === q));
+  document.querySelectorAll('#segCut button').forEach((b) => b.classList.toggle('on', b.dataset.c === state.cut));
+  $('rLo').value = state.lo[q];  $('vLo').textContent = state.lo[q].toFixed(2);
+  $('rHi').value = state.hi[q];  $('vHi').textContent = state.hi[q].toFixed(2);
+  $('rOp').value = state.glow;   $('vOp').textContent = state.glow.toFixed(2);
+  $('selCmap').value = state.cmap;
+  $('lZ').style.display = state.cut === 'transverse' ? '' : 'none';
+  $('lAng').style.display = state.cut === 'longitudinal' ? '' : 'none';
+  $('lOff').style.display = state.cut === 'longitudinal' ? '' : 'none';
+  $('rZ').value = state.cutZ;        $('vZ').textContent = `${state.cutZ.toFixed(2)} mm`;
+  $('rAng').value = state.cutAngle;  $('vAng').textContent = `${state.cutAngle}°`;
+  $('rOff').value = state.cutOffset; $('vOff').textContent = `${state.cutOffset.toFixed(2)} mm`;
+  $('cbFlip').checked = state.flip;
+
+  // visibility
+  shellMeshes.nerve.forEach((m) => { m.visible = state.show.nerve; });
+  shellMeshes.fascicles.forEach((m) => { m.visible = state.show.fascicles; });
+  shellMeshes.cuff.forEach((m) => { m.visible = state.show.cuff; });
+  contactMeshes.forEach((m) => { m.visible = state.show.contacts; });
+  ringGroup.children.forEach((l) => { l.visible = state.show[l.userData.kind]; });
+  labelGroup.visible = state.show.labels;
+
+  updateCut();
+  updateColorbar();
+}
+
+function formatValue(v) {
+  const a = Math.abs(v);
+  if (a >= 1000) return v.toExponential(1);
+  if (a >= 100) return v.toFixed(0);
+  if (a >= 10) return v.toFixed(1);
+  if (a >= 1) return v.toFixed(2);
+  return v.toPrecision(2);
+}
+
+function updateColorbar() {
+  const bar = $('colorbar');
+  const f = state.siteId != null ? NV.fields[state.siteId] : null;
+  if (!f) { bar.style.display = 'none'; return; }
+  bar.style.display = 'block';
+  const q = state.quantity, info = f.quantities[q];
+  const I = state.current_uA, lo = state.lo[q], hi = state.hi[q];
+  const value = (t) => {                      // t in [0,1] of the stored range -> physical value at current I
+    if (info.scale === 'linear') return (info.lo + t * (info.hi - info.lo)) * I;
+    return info.lo * Math.pow(info.hi / info.lo, t) * I;
+  };
+  const unit = info.unit.replace('uA', 'µA').replace('^2', '²');
+  $('cbName').innerHTML = `<b>${Q_INFO[q].name}</b> [${unit}]${info.scale === 'log' ? ' · log scale' : ''}`;
+  $('cbInfo').textContent = `AS ${f.id} · ${I} µA${state.heatOn ? '' : ' · off'}`;
+  const cv = $('cbCanvas'), ctx = cv.getContext('2d');
+  const img = ctx.createImageData(cv.width, cv.height);
+  for (let x = 0; x < cv.width; x++) {
+    const [r, g, b] = cmapJS(state.cmap, x / (cv.width - 1));
+    for (let y = 0; y < cv.height; y++) {
+      const k = 4 * (y * cv.width + x);
+      img.data[k] = r; img.data[k + 1] = g; img.data[k + 2] = b; img.data[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const ticks = [0, 0.25, 0.5, 0.75, 1].map((s) => formatValue(value(lo + s * (hi - lo))));
+  $('cbTicks').innerHTML = ticks.map((t, i) => `<span>${i === 0 ? '≤ ' : i === 4 ? '≥ ' : ''}${t}</span>`).join('');
+}
+
+/* ======================================================================================
+   Animation loop.
+   ====================================================================================== */
+const clock = new THREE.Clock();
+const camLocal = new THREE.Vector3();
+let ramp = 0;
+function animate() {
+  const dt = Math.min(clock.getDelta(), 0.1), t = clock.elapsedTime;
+  ramp += ((state.heatOn ? 1 : 0) - ramp) * (1 - Math.exp(-dt * 7));
+  if (Math.abs(ramp - (state.heatOn ? 1 : 0)) < 1e-3) ramp = state.heatOn ? 1 : 0;
+  let k = ramp;
+  if (state.pulse && state.heatOn) {
+    const ph = (t * 1.5) % 1;               // illustrative pulse train, 1.5 Hz
+    k *= 0.06 + 0.94 * (ph < 0.1 ? 1 : Math.exp(-(ph - 0.1) * 12));
+  }
+  state.intensity = k;
+  volumeMesh.material.uniforms.uIntensity.value = k;
+  sliceMesh.material.uniforms.uIntensity.value = k;
+  volumeMesh.visible = k > 0.001;
+
+  // active contact glows with the stimulus
+  contactMeshes.forEach((m) => {
+    const s = m.userData.site, mat = m.material;
+    if (s.id === state.siteId) {
+      mat.emissive.setRGB(0.25 + 0.75 * k, 0.6 + 0.4 * k, 1.0);
+      mat.emissiveIntensity = 0.35 + 1.4 * k;
+    } else {
+      mat.emissive.setHex(s.solved ? 0x553300 : 0x1a1000);
+      mat.emissiveIntensity = 1;
+    }
+  });
+
+  if (focusTarget) {                         // smooth move of the orbit centre (camera follows)
+    const step = new THREE.Vector3().subVectors(focusTarget, controls.target);
+    if (step.length() < 1e-3) focusTarget = null;
+    else {
+      step.multiplyScalar(1 - Math.exp(-dt * 6));
+      controls.target.add(step);
+      camera.position.add(step);
+    }
+  }
+  controls.update();
+  camLocal.copy(camera.position);
+  model.worldToLocal(camLocal);
+  volumeMesh.material.uniforms.uCam.value.copy(camLocal);
+  renderer.render(scene, camera);
+}
+</script>
+</body>
+</html>
