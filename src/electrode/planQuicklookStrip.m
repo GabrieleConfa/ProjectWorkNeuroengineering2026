@@ -9,7 +9,7 @@ s_m = linspace(-R, R, 301)'; % Sample the strip from one nerve surface to the op
 siteS_m = sites.centre_m(:,1:2)*u'; % Preserve each tutor contact's nominal along-strip coordinate.
 fasc = p.geometry.fascicles_m; % Read the fixed provisional fascicles.
 peri_m = fasc(:,3) + p.geometry.tPeri_m; % Use the outer perineurium as the fascicle boundary.
-margin_m = p.electrode.stripHalfEnvelope_m; % Inflate obstacles by the illustrative strip half-envelope.
+margin_m = p.electrode.stripWidth_m/2; % Derive the geometric collision envelope from the current strip width.
 cuffN = [cosd(cuffSites.theta_deg), sind(cuffSites.theta_deg)]; % Read the station's outward cuff normals.
 cuffPlane_m = R - p.electrode.cuffIndentation_m; % Use the same cuff plane as the nerve surface.
 %% 2. Search for a smooth lateral route or retain a straight crossing

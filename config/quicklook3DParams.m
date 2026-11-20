@@ -18,6 +18,11 @@ p.geometry.fascicles_m = 1e-3 * fascicles_mm; % Convert [x y endoneurium radius]
 %% 2. Cuff and strip geometry
 p.electrode.cuffIndentation_m = 0.12e-3; % Prescribe a flat contact depth for the first geometry check.
 p.electrode.cuffTransition_m = 0.40e-3; % Blend back to the circular nerve beyond each cuff pad edge.
-p.electrode.stripHalfEnvelope_m = 0.06e-3; % Provisional transverse clearance including the strip/pad envelope.
 p.electrode.maxDeflection_m = 0.8e-3; % Maximum lateral shift explored by the geometric search.
+%% 3. Provisional strip mechanics for a puncture feasibility screen
+p.electrode.stripWidth_m = 0.12e-3; % Assume a flexible strip narrower than its 0.20 mm active pads.
+p.electrode.stripThickness_m = 10e-6; % Assume a thin flexible substrate pending the device specification.
+p.electrode.stripYoungModulus_Pa = 2.5e9; % Use published photosensitive-polyimide modulus as a material proxy.
+p.electrode.unsupportedLength_m = 1e-3; % Assume one millimetre can bend near a fascicle contact.
+p.electrode.perineuriumPunctureForce_N = 40e-3; % Use the measured rabbit perineurium probe force as a provisional comparison.
 end % Return geometry and electrode settings in SI units.

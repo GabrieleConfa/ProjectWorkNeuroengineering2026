@@ -102,3 +102,11 @@ three-dimensional tetrahedral mesh of one flattened cuff station can be made
 with `buildQuicklookMesh(p, cuffSites)`. It is a short uniform slab through a
 contact. The full axial nerve with its cuff transitions and transverse strips
 still needs a conforming volume mesh before a 3D electrical solve.
+
+The insertion screen now reports a straight-path encounter angle and compares
+an ideal weak-axis buckling load with a probe-specific perineurium insertion
+force. Its dimensions, unsupported length and material proxy are editable in
+`quicklook3DParams.m`; changing the strip width also changes the geometric
+collision envelope. The screen cannot predict a penetration percentage or
+confirm rupture. The source and assumptions are listed in
+`docs/insertion_evidence.md`.

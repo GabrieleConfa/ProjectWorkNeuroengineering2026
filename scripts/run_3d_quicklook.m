@@ -14,6 +14,7 @@ for k = 1:numel(ids) % Build a transverse strip independently at each station.
     strip = stripSites(stripSites.section == ids(k), :); % Extract the internal pads for this station.
     cuff = cuffSites(cuffSites.section == ids(k), :); % Extract the corresponding opposite cuff pair.
     model.strips(k) = planQuicklookStrip(p, strip, cuff, mode); % Place the strip and record its geometric overlaps.
+    model.puncture(k) = assessFasciclePuncture(p, strip); % Screen the straight encounter with the provisional bending inputs.
 end % Finish assembling the device.
 model.parameters = p; % Preserve the input parameters with the output.
 model.mode = mode; % Preserve the interaction assumption for later comparison.
