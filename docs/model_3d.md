@@ -176,6 +176,8 @@ rule is kept as `"pushAside"` for comparison. **Question for the tutor** (in `pr
 | `src/main/main_pipeline_3d.m` | the runnable pipeline | new |
 | `scripts/view_model_3d.m` | interactive 3D view of a solved model (geometry + potential planes) | new |
 | `src/utils/boundaryFaces.m` | surface triangles of a set of tetrahedra (used by the viewer) | new |
+| `scripts/export_viewer_data.m` | exports a solved model for the browser viewer (2026-11-20) | new |
+| `viewer/index.html`, `viewer/vendor/` | interactive 3D viewer in the browser, three.js r147 (2026-11-20) | new |
 | `tests/testThinLayerFEM.m` | exact-solution tests of the FE code | new |
 | `tests/testMakePatient.m` | tests of the generator | new |
 | `data/patients/UA01.mat` | patient UA01 (written by the pipeline) | generated |
@@ -542,6 +544,83 @@ How it works:
 What to look for: in the AS 2 view the potential is high along a vertical band that is fascicle F2 —
 the current injected inside a fascicle is kept there by the perineurium and spreads along the fibres
 (σ_L ≈ 7 σ_T), which is exactly why an intrafascicular contact is selective.
+
+### 8.2 The interactive browser viewer `viewer/index.html` (2026-11-20)
+
+A real-time 3D view for exploring the model and for presenting it: the nerve is a rotatable object
+on a black background, fascicles and nerve drawn as bright semi-transparent shells so that the
+contacts are visible inside, and the field of a contact switched on with a key or a click as a
+glowing see-through volume. The nerve can be cut (dissected) transversally or lengthwise, and the
+cut face shows the tissues and the heatmap. Nothing is computed in the browser: it only displays the
+FE solution exported once from MATLAB.
+
+**Two steps.**
+
+1. `setup_paths; export_viewer_data` (MATLAB). Reads `results/main3d/<id>_3d.mat` and writes
+   `results/viewer/<id>/`:
+   - `geometry.js`: the model in mm — nerve radius and length, fascicles (x, y, r), cuff, all 48
+     contacts (centre, normal n, side w, sizes, solved or not, location, access resistance), the
+     sampling grid;
+   - `AS<k>.js`, one per solved contact: **V** (potential), **|E|** = |∇V| (field) and
+     **|J|** = |σ∇V| (current density) on a regular grid inside the nerve, for 1 µA.
+   Options at the top of the script: grid spacing (50 µm across, 100 µm along the nerve), grid
+   length (|z| ≤ 12.5 mm, covers all stations), decades of the log scale.
+2. Open `viewer/index.html` (double-click; Chrome, Edge or Firefox; works offline).
+   `?patient=<id>` loads another exported patient.
+
+**How the data are sampled (and why so).**
+- Every grid point inside the nerve is located in the mesh *after* the thin-layer node duplication,
+  so a point inside a fascicle takes the endoneurium-side value, as in `interpolateP1`. Locating
+  ~0.9 M points takes ≈ 13 min; the result is cached (`gridLocation_cache.mat`), so re-exporting
+  the same run is fast. About 0.3% of the points (next to the nerve surface, where the meshed
+  polygon lies inside the true circle) are not in the mesh and are left empty.
+- V is interpolated linearly (P1). **|E| and |J| are taken from the element that contains the
+  point**, where the P1 gradient is constant and exact. A finite difference on the grid would
+  instead see the potential jump across the perineurium as a huge fake field on every fascicle
+  boundary.
+- |J| uses the anisotropic σ of the element (σ_z = σ_L in the endoneurium); inside the active
+  contact σ = 1000 S/m (D-07), inside idle contacts ≈ 0 (insulating).
+- Each quantity is stored as an 8-bit code (0 = no data): V linear between its minimum and
+  maximum in the nerve; |E| and |J| logarithmic over 3 decades below their 99.9th percentile
+  (the top 0.1% of the voxels, right at the contact edges, saturate). The colour bar converts back
+  to physical units and scales with the current typed in the panel: the problem is linear, so a
+  current of I µA multiplies every value by I. The files are JavaScript, not binary, because a
+  page opened from disk may load scripts but not fetch files.
+
+**What the viewer does.**
+- Geometry drawn analytically (the 3D model *is* one section extruded along z): cylinders for the
+  nerve and fascicles, a tube for the cuff, boxes for the contacts. By default only the data zone
+  (|z| ≤ 12.5 mm) is drawn; "full length" shows the whole 70 mm. The muscle is not drawn.
+- Heatmap = volume ray marching through a 3D texture: along each pixel's ray, inside the nerve,
+  samples are coloured with the colour map and accumulated with an opacity that grows with the
+  value, so low values are transparent and the high-value region glows. "Window lo/hi" choose the
+  part of the stored range mapped onto the colour bar; "Glow" scales the opacity.
+- Dissection: a cut plane removes one side of the shells and of the volume; on the plane itself an
+  opaque face shows the tissues (each fascicle's endoneurium in its colour, perineurium as a bright
+  outline, epineurium dark, cuff wall grey) and, when stimulating, the heatmap. Transverse
+  (slider z, or the station buttons) or longitudinal (angle and offset; by default through the
+  nerve axis and the selected contact). Contacts are kept visible unless "keep contacts" is off.
+- Selecting a contact moves the rotation centre to its station. The pulse train only modulates the
+  brightness to illustrate I(t); with a quasi-static model the field follows the current instantly.
+
+| Input | Action |
+|---|---|
+| left drag / right drag / wheel | rotate / pan / zoom |
+| hover / click a contact | info (station, position, tissue, access resistance) / select and stimulate |
+| Space or H | stimulation (heatmap) on/off |
+| ← → | previous / next solved contact |
+| 1 2 3 | V, \|E\|, \|J\| |
+| C, ↑ ↓, F | cycle cut mode, move the cut, flip the side cut away |
+| P, M, L, R | pulse train, colour map, full length, reset view |
+
+URL options open a prepared view (for slides or a live demo), e.g.
+`index.html?site=2&heat=1&cut=transverse&z=-10.3&flip=1` or
+`index.html?site=5&heat=1&q=E&cut=longitudinal` (also: `angle`, `offset`, `cmap=inferno`,
+`full=1`, `patient`).
+
+Limits: only the contacts solved by `main_pipeline_3d` have a field (station −4 at the moment); the
+file size grows by ≈ 5 MB per contact; the volume rendering needs WebGL2 (any recent browser). The
+viewer is a visual aid: numbers for the report come from the MATLAB results, not from screenshots.
 
 ---
 

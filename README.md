@@ -39,6 +39,7 @@ contract), and run `setup_paths; runtests('tests')`.
 | `data/patients` | virtual patients (seed + parameters) |
 | `results/` | generated outputs (not versioned) |
 | `report/` | final report / slides |
+| `viewer/` | interactive 3D viewer in the browser (`index.html`, three.js vendored in `viewer/vendor/`) |
 
 ## Running
 
@@ -49,3 +50,15 @@ setup_paths            % adds src/ and config/ to the path
 ```
 
 Requires MATLAB R2025a with the **Partial Differential Equation Toolbox**.
+
+### Interactive 3D viewer
+
+After `main_pipeline_3d` has solved some contacts:
+
+```matlab
+setup_paths; export_viewer_data     % writes results/viewer/<patient>/ (geometry + one file per contact)
+```
+
+then open `viewer/index.html` in Chrome, Edge or Firefox (double-click, no server needed). Rotate the
+nerve with the mouse, press Space (or click a contact) to show its field, cut the nerve
+transversally or lengthwise. Keys and options: `docs/model_3d.md` §8.2.
