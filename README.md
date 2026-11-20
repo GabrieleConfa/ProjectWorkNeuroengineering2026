@@ -32,33 +32,98 @@ contract), and run `setup_paths; runtests('tests')`.
 | `src/activation` | phase 5 — activating function, thresholds per fascicle |
 | `src/safety` | charge / charge-density checks |
 | `src/utils` | shared helpers (plotting, I/O, unit conversion) |
+| `src/main` | the runnable pipelines: `main_pipeline.m` (2D), `main_pipeline_3d.m` (3D simulation) |
 | `config/` | parameter files |
-| `scripts/` | runnable pipelines (`run_*.m`) |
+| `scripts/` | helper scripts: viewer export (`export_viewer_data.m`), MATLAB 3D view (`view_model_3d.m`), 2D quick look |
 | `tests/` | verification tests (`matlab.unittest`) |
 | `data/electrode` | provided active-site layout |
 | `data/patients` | virtual patients (seed + parameters) |
-| `results/` | generated outputs (not versioned) |
+| `results/` | generated outputs; only the viewer data (`results/viewer/`) and the 3D figures (`results/main3d/*.png`) are versioned |
 | `report/` | final report / slides |
 | `viewer/` | interactive 3D viewer in the browser (`index.html`, three.js vendored in `viewer/vendor/`) |
 
 ## Running
 
-From MATLAB, in the project root:
+Requires MATLAB R2025a with the **Partial Differential Equation Toolbox** (check with `ver('pde')`).
+Every command below is typed in MATLAB, in the project root.
 
 ```matlab
-setup_paths            % adds src/ and config/ to the path
+setup_paths                 % adds src/, config/ and scripts/ to the path (once per session)
+runtests('tests')           % verification tests: all must pass before pushing
 ```
 
-Requires MATLAB R2025a with the **Partial Differential Equation Toolbox**.
+### Just looking at the results: the 3D viewer (no MATLAB needed)
 
-### Interactive 3D viewer
+The data of the last simulation (patient UA01, station −4) are in the repository, so after cloning
+you can **double-click `viewer/index.html`**. It opens in Chrome, Edge or Firefox, from disk, also
+offline.
 
-After `main_pipeline_3d` has solved some contacts:
+| Do this | To |
+|---|---|
+| drag with the left / right button, scroll | rotate / pan / zoom the nerve |
+| hover a gold contact | see where it is (fascicle or epineurium) and its access resistance |
+| click a contact, or press **Space** | stimulate it: its field appears as a glowing heatmap (Space again = off) |
+| **← →** | previous / next solved contact |
+| **1 2 3 4** or the buttons | show V, \|E\|, \|J\| or **AF** (activating function, the default) |
+| **C**, then **↑ ↓**, **F** | cut the nerve (none → transverse → lengthwise), move the cut, flip the side removed |
+| station buttons −4 … +4 | jump to the cross-section through that station |
+| **P**, **M**, **L**, **R**, **?** | pulse animation, colour map, full 70 mm, reset view, list of keys |
+
+What the four quantities show (all for a monopolar stimulus of 1 µA; the "Current" box rescales
+the colour bar, the model being linear):
+
+- **V**, potential [mV]: highest at the contact, but the whole nerve sits at 1.5–4 mV because the
+  insulating cuff forces the current along the nerve. A contact in a fascicle has a *lower* V than
+  one in the epineurium: it injects the same current through a lower resistance.
+- **|E|**, field [V/m], and **|J|**, current density [µA/mm²], both on a log scale: |J| shows where
+  the current flows. Current injected inside a fascicle is kept there by the perineurium and runs
+  along the fascicle.
+- **AF**, activating function [V/m²]: −∂²V/∂z² over one internode (1 mm), i.e. for a cathodic pulse,
+  shown only inside the fascicles and only where it depolarises. **This is what decides whether a
+  fibre fires**, so it is the view that answers the project question: a contact inside a fascicle
+  drives that fascicle strongly and the others little (AS 2: 26× more than the next fascicle).
+
+Colours are scaled per contact (each contact's own range): to compare contacts, read the numbers
+on the colour bar. A link can open a prepared view, e.g.
+`viewer/index.html?site=2&heat=1&cut=transverse&z=-10.3&flip=1` (options: `site`, `heat=1`,
+`q=V|E|J|A`, `cut=transverse|longitudinal`, `z`, `angle`, `offset`, `flip=1`, `full=1`,
+`cmap=inferno`, `patient`). Details: [docs/model_3d.md](docs/model_3d.md) §8.2.
+
+### Running the 3D simulation
 
 ```matlab
-setup_paths; export_viewer_data     % writes results/viewer/<patient>/ (geometry + one file per contact)
+setup_paths; main_pipeline_3d       % or open src/main/main_pipeline_3d.m and press Run
 ```
 
-then open `viewer/index.html` in Chrome, Edge or Firefox (double-click, no server needed). Rotate the
-nerve with the mouse, press Space (or click a contact) to show its field, cut the nerve
-transversally or lengthwise. Keys and options: `docs/model_3d.md` §8.2.
+What it does, in order (explained step by step in [docs/model_3d.md](docs/model_3d.md)):
+
+1. generates the virtual patient (10 fascicles, mid-upper arm, from the literature) and saves it in
+   `data/patients/<id>.mat`;
+2. builds the 3D geometry: nerve 70 mm, insulating cuff 50 mm, the 48 contacts (≈ 3 min);
+3. meshes it with linear tetrahedra (≈ 1 min, ≈ 3 M elements);
+4. assembles and solves the FE problem once per selected contact with 1 A (≈ 2.5 min per contact,
+   several GB of RAM), with the perineurium as a thin resistive layer;
+5. saves `results/main3d/<id>_3d.mat` (mesh + potentials) and the figures `results/main3d/*.png`.
+
+Every choice is a parameter in **`config/pw6_3d_params.m`** (never in the code); the ones you will
+change most:
+
+| Parameter | Default | Meaning |
+|---|---|---|
+| `p.patient.id`, `p.patient.seed` | `"UA01"`, `1` | which virtual patient (same seed = same patient) |
+| `p.solve3d.sections` | `-4` | stations whose contacts are solved; `[]` = all 48 contacts (≈ 2 h) |
+| `p.domain.endBC` | `"ground"` | end planes grounded or `"insulated"` |
+| `p.mesh3d.h*_m` | 30 µm … 1.2 mm | element sizes |
+
+Then, to see the new results in the viewer:
+
+```matlab
+setup_paths; export_viewer_data     % ≈ 15 min the first time (cached afterwards), then seconds per contact
+```
+
+It rewrites `results/viewer/<id>/` (one `AS<k>.js` per solved contact) and prints, for each contact,
+the activating function reached by 10% of the fibres of each fascicle. Reload the viewer page.
+Commit the new `results/viewer/` files if the group should see them (about 7 MB per contact).
+
+Other entry points: `src/main/main_pipeline.m` (2D model), `scripts/view_model_3d.m` (static 3D view
+in MATLAB).

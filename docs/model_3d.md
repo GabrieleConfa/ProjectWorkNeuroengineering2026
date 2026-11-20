@@ -561,12 +561,19 @@ FE solution exported once from MATLAB.
    - `geometry.js`: the model in mm — nerve radius and length, fascicles (x, y, r), cuff, all 48
      contacts (centre, normal n, side w, sizes, solved or not, location, access resistance), the
      sampling grid;
-   - `AS<k>.js`, one per solved contact: **V** (potential), **|E|** = |∇V| (field) and
-     **|J|** = |σ∇V| (current density) on a regular grid inside the nerve, for 1 µA.
+   - `AS<k>.js`, one per solved contact: **V** (potential), **|E|** = |∇V| (field),
+     **|J|** = |σ∇V| (current density) and **AF** (activating function, see below) on a regular
+     grid inside the nerve, for 1 µA.
    Options at the top of the script: grid spacing (50 µm across, 100 µm along the nerve), grid
    length (|z| ≤ 12.5 mm, covers all stations), decades of the log scale.
 2. Open `viewer/index.html` (double-click; Chrome, Edge or Firefox; works offline).
    `?patient=<id>` loads another exported patient.
+
+**Files the viewer needs** (all in the repository since 2026-11-20, so it works right after
+cloning): `viewer/index.html`, `viewer/vendor/` (three.js) and `results/viewer/<id>/` (`geometry.js`
++ one `AS<k>.js` per solved contact, ≈ 7 MB each). `.gitignore` versions these and the 3D figures
+(`results/main3d/*.png`) but not the rest of `results/`: the `.mat` solution (50 MB, ≈ 150 MB with 48
+contacts: too large for GitHub) and the location cache are regenerated locally.
 
 **How the data are sampled (and why so).**
 - Every grid point inside the nerve is located in the mesh *after* the thin-layer node duplication,
@@ -580,8 +587,36 @@ FE solution exported once from MATLAB.
   boundary.
 - |J| uses the anisotropic σ of the element (σ_z = σ_L in the endoneurium); inside the active
   contact σ = 1000 S/m (D-07), inside idle contacts ≈ 0 (insulating).
+- **Activating function (AF)**, the quantity that decides whether a fibre fires: for a myelinated
+  fibre along z with nodes every Δz, f = (V(z−Δz) − 2V(z) + V(z+Δz))/Δz². The solution is for a
+  positive (anodic) current; for a cathodic pulse, the usual way to excite, the sign flips, so the
+  viewer shows AF = −f, where AF > 0 = depolarisation. Δz = `p.plot3d.afSpacing_m` = 1 mm (internode
+  of a 10 µm fibre, 100·D), as in the pipeline preview. Computed from the grid V along lines parallel
+  to z (fibres are straight in the extruded model), kept **only in the endoneurium** (where the fibres
+  are); hyperpolarised points get the lowest colour, the last 1 mm at each grid end has no value. It is
+  a map of the stimulus, not the threshold criterion (phase 5 needs fibre diameters and an AF
+  threshold). The export also prints, per contact, the AF reached by **10% of the fibres** of each
+  fascicle (each grid line along z = one fibre, its maximum along z; 90th percentile per fascicle;
+  10% = recruitment level of Zelechowski 2020). The single peak per fascicle is not used: it comes from
+  the few fibres touching the contact edges, where the AF is nearly singular (with the peak, AS 1, half
+  in F2, would look stronger on F2 than AS 2, fully inside it). First results, patient UA01, station −4,
+  V/m² per µA:
+
+  | Contact | Most driven fascicle | Next | Ratio |
+  |---|---|---|---|
+  | AS 1 (epineurium 41%, F2 59%) | F2 1679 | F3 220 | 8 |
+  | AS 2 (F2 100%) | F2 2147 | F3 84 | 26 |
+  | AS 3 (epineurium 41%, F1 28%, F2 31%) | F2 1109 | F1 924 | 1.2 |
+  | AS 4 (F1 100%) | F1 2565 | F7 170 | 15 |
+  | AS 5 (cuff) | F4 2866 | F5 724 | 4 |
+  | AS 6 (cuff) | F9 2204 | F3 498 | 4.4 |
+
+  The intrafascicular contacts are the most selective; the cuff contacts drive the superficial
+  fascicle under them about as strongly per µA, but spread more. Note that V alone hides this: a
+  contact inside a fascicle has a *lower* potential (lower access resistance, 8.7 vs 10.0 kΩ), and the
+  whole cuffed nerve sits at 1.5–4 mV, which swamps the differences between fascicles.
 - Each quantity is stored as an 8-bit code (0 = no data): V linear between its minimum and
-  maximum in the nerve; |E| and |J| logarithmic over 3 decades below their 99.9th percentile
+  maximum in the nerve; |E|, |J| and AF logarithmic over 3 decades below their 99.9th percentile
   (the top 0.1% of the voxels, right at the contact edges, saturate). The colour bar converts back
   to physical units and scales with the current typed in the panel: the problem is linear, so a
   current of I µA multiplies every value by I. The files are JavaScript, not binary, because a
@@ -609,17 +644,17 @@ FE solution exported once from MATLAB.
 | hover / click a contact | info (station, position, tissue, access resistance) / select and stimulate |
 | Space or H | stimulation (heatmap) on/off |
 | ← → | previous / next solved contact |
-| 1 2 3 | V, \|E\|, \|J\| |
+| 1 2 3 4 | V, \|E\|, \|J\|, AF (AF is the default) |
 | C, ↑ ↓, F | cycle cut mode, move the cut, flip the side cut away |
 | P, M, L, R | pulse train, colour map, full length, reset view |
 
 URL options open a prepared view (for slides or a live demo), e.g.
 `index.html?site=2&heat=1&cut=transverse&z=-10.3&flip=1` or
-`index.html?site=5&heat=1&q=E&cut=longitudinal` (also: `angle`, `offset`, `cmap=inferno`,
+`index.html?site=5&heat=1&q=E&cut=longitudinal` (also: `q=V|E|J|A`, `angle`, `offset`, `cmap=inferno`,
 `full=1`, `patient`).
 
 Limits: only the contacts solved by `main_pipeline_3d` have a field (station −4 at the moment); the
-file size grows by ≈ 5 MB per contact; the volume rendering needs WebGL2 (any recent browser). The
+file size grows by ≈ 7 MB per contact; the volume rendering needs WebGL2 (any recent browser). The
 viewer is a visual aid: numbers for the report come from the MATLAB results, not from screenshots.
 
 ---

@@ -10,6 +10,8 @@
 %                     V    potential [mV]                  (linear 8-bit code)
 %                     E    |E| = |grad V|, field [V/m]     (log 8-bit code, eDecades decades)
 %                     J    |J| = |sigma grad V|, current density [A/m^2 = uA/mm^2] (log 8-bit code)
+%                     A    activating function for a CATHODIC pulse, -d2V/dz2 over one internode
+%                          [V/m^2], endoneurium only, depolarisation (> 0) only (log 8-bit code)
 %   The files are JavaScript (not JSON or binary) because a page opened from disk (file://) may load
 %   scripts but not fetch files; the voxel arrays are base64 strings inside them.
 %
@@ -21,6 +23,18 @@
 %   tetrahedron, so they are taken from the element that contains the point: this is the exact FE
 %   gradient, and it does not produce the fake spikes a finite difference across the perineurium jump
 %   would give.
+%
+% Activating function (A)
+%   The quantity that decides whether a fibre fires (phase 5): for a myelinated fibre along z with
+%   nodes of Ranvier every Dz, f = (V(z-Dz) - 2 V(z) + V(z+Dz)) / Dz^2. The solution is for a positive
+%   (anodic) current; for a cathodic pulse, the usual way to excite, the sign flips, so A = -f and
+%   A > 0 means depolarisation (the fibre is pushed towards firing). Dz = p.plot3d.afSpacing_m (1 mm =
+%   internode of a 10 um fibre, internode = 100 D), the same as the preview in main_pipeline_3d. It is
+%   computed on the grid lines parallel to z (fibres are straight because the model is extruded) and
+%   kept only inside the endoneurium, where the fibres are; hyperpolarised points (A <= 0) get the
+%   lowest colour. The last Dz at each end of the grid has no value. This is a map of the stimulus,
+%   not yet the threshold criterion (that needs the fibre diameters and an activating-function
+%   threshold, phase 5).
 %
 % Run: setup_paths; export_viewer_data      (then open viewer/index.html in Chrome/Edge/Firefox)
 % Time: locating the grid in the mesh ~13 min the first time (cached in results/viewer/<id>/ for
@@ -136,6 +150,19 @@ model = struct( ...
 writeJs(fullfile(outDir, 'geometry.js'), 'NV.setModel', model);
 
 %% ===== ONE FIELD FILE PER SOLVED CONTACT ==============================================
+inIdx = find(inNerve);
+% endoneurium mask and fascicle index of every voxel (the section is the same at every z)
+[GX2, GY2] = ndgrid(xs, ys);
+fasc2 = zeros(size(GX2));
+for i = 1:height(F)
+    fasc2((GX2 - F.x_m(i)).^2 + (GY2 - F.y_m(i)).^2 < F.rEndo_m(i)^2) = i;
+end
+fascOf = repmat(fasc2, 1, 1, numel(zs));
+inEndo = fascOf > 0;
+nF = height(F);
+mAF = round(p.plot3d.afSpacing_m / gridStepZ_m);    % internode in grid steps
+dzAF_m = mAF * gridStepZ_m;
+fprintf('Activating function over Dz = %.2f mm (p.plot3d.afSpacing_m), endoneurium only\n', dzAF_m / mm);
 for j = 1:numel(solved)
     id = solved(j);   tic;
     u = double(out.V_per_A(:, j));
@@ -148,14 +175,40 @@ for j = 1:numel(solved)
     [codeV, qV] = codeLinear(Vpt);
     [codeE, qE] = codeLog(Emag(loc), eDecades);
     [codeJ, qJ] = codeLog(Jmag(loc), eDecades);
-    qV.unit = "mV";   qE.unit = "V/m";   qJ.unit = "uA/mm^2";
-    field = struct('id', id, 'quantities', struct('V', qV, 'E', qE, 'J', qJ), ...
+    % activating function, cathodic: A = -(V(z-Dz) - 2V(z) + V(z+Dz)) / Dz^2, endoneurium only
+    Vfull = nan(size(inNerve));
+    Vfull(inIdx(found)) = Vpt * mm;                                     % back to [V] for 1 uA
+    A = nan(size(inNerve));
+    A(:, :, 1+mAF:end-mAF) = -(Vfull(:, :, 1:end-2*mAF) - 2 * Vfull(:, :, 1+mAF:end-mAF) ...
+                               + Vfull(:, :, 1+2*mAF:end)) / dzAF_m^2;   % [V/m^2] for 1 uA
+    A(~inEndo) = NaN;
+    okA = ~isnan(A);
+    [codeA, qA] = codeLog(A(okA), eDecades);
+    volA = zeros(size(inNerve), 'uint8');   volA(okA) = codeA;
+    qV.unit = "mV";   qE.unit = "V/m";   qJ.unit = "uA/mm^2";   qA.unit = "V/m^2";
+    qA.spacing_mm = dzAF_m / mm;
+    field = struct('id', id, 'quantities', struct('V', qV, 'E', qE, 'J', qJ, 'A', qA), ...
                    'data', struct('V', toVolume(codeV, inNerve, found), ...
                                   'E', toVolume(codeE, inNerve, found), ...
-                                  'J', toVolume(codeJ, inNerve, found)));
+                                  'J', toVolume(codeJ, inNerve, found), ...
+                                  'A', matlab.net.base64encode(volA(:)')));
     writeJs(fullfile(outDir, sprintf('AS%d.js', id)), 'NV.addField', field);
-    fprintf('   AS %2d: V %.2f ... %.2f mV, |E| up to %.0f V/m, |J| up to %.1f A/m^2 (per uA)  [%.1f s]\n', ...
-            id, qV.lo, qV.hi, qE.hi, qJ.hi, toc);
+    % First look at which fascicles this contact drives. Each grid line along z inside a fascicle is
+    % taken as one fibre (uniform density), with its maximum AF along z; the fascicle is summarised by
+    % the AF reached by 10% of its fibres (90th percentile), the recruitment level of Zelechowski 2020.
+    % The single peak is not used: it comes from the few fibres touching the contact edges, where the
+    % activating function is nearly singular. Printout only; the real criterion is phase 5.
+    afMaxLine = max(A, [], 3, 'omitnan');                               % nx x ny, NaN outside fascicles
+    af10 = zeros(1, nF);
+    for i = 1:nF
+        a = sort(afMaxLine(fasc2 == i & ~isnan(afMaxLine)), 'descend');
+        if ~isempty(a), af10(i) = a(max(1, ceil(0.10 * numel(a)))); end
+    end
+    [pk, ord] = sort(af10, 'descend');
+    fprintf('   AS %2d: V %.2f ... %.2f mV, |E| up to %.0f V/m, |J| up to %.1f A/m^2, AF up to %.0f V/m^2 (per uA)  [%.1f s]\n', ...
+            id, qV.lo, qV.hi, qE.hi, qJ.hi, qA.hi, toc);
+    fprintf('          AF reached by 10%% of the fibres [V/m^2 per uA]: %s\n', ...
+            strjoin(compose('F%d %.0f', [ord(1:4); pk(1:4)]'), ', '));
 end
 fprintf('Done: %s\nOpen viewer/index.html (add ?patient=%s if it is not UA01).\n', outDir, patientId);
 

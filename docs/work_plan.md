@@ -66,7 +66,9 @@ Results across patients, limitations (from `decisions.md`), report and slides.
 - **Same software for everyone:** MATLAB R2025a + PDE Toolbox (the 3D functions used —
   `extrude`, `addCell`, `femodel` — need a recent release; R2023a is the minimum for `femodel`).
 - **Large files stay out of git:** `results/` and `Papers/` are ignored; everything in `results/`
-  must be regenerable from `scripts/`.
+  must be regenerable from `scripts/`. Exception (2026-11-20): the browser-viewer data
+  (`results/viewer/`) and the 3D figures (`results/main3d/*.png`) are versioned, so the viewer opens
+  right after cloning; the `.mat` solutions stay out (too large for GitHub).
 - **Before pushing:** `setup_paths; runtests('tests')` passes.
 - **A choice that is not in the brief** → entry in `docs/decisions.md` (proposed by the owner,
   agreed in the group chat or at the weekly meeting).

@@ -65,6 +65,7 @@
     width: min(440px, calc(100vw - 32px)); box-sizing: border-box; display: none; }
   #colorbar .cbTitle { display: flex; justify-content: space-between; margin-bottom: 4px; }
   #colorbar .cbTitle b { color: #fff; }
+  #colorbar .cbTitle span:last-child { white-space: nowrap; margin-left: 10px; }
   #colorbar canvas { width: 100%; height: 12px; border-radius: 3px; display: block; }
   #colorbar .ticks { display: flex; justify-content: space-between; color: var(--muted); margin-top: 2px;
     font-variant-numeric: tabular-nums; }
@@ -99,6 +100,7 @@
       <button data-q="V" title="potential">V</button>
       <button data-q="E" title="electric field magnitude">|E|</button>
       <button data-q="J" title="current density magnitude">|J|</button>
+      <button data-q="A" title="activating function for a cathodic pulse: where fibres are depolarised">AF</button>
     </div>
     <label class="line">Current <input id="inI" type="number" min="0.01" step="any" value="1"><span class="val">µA</span></label>
     <label class="line">Window lo <input id="rLo" type="range" min="0" max="0.98" step="0.01"><span class="val" id="vLo"></span></label>
@@ -155,7 +157,7 @@
     <tr><td>click a contact</td><td>select it and stimulate (solved contacts only)</td></tr>
     <tr><td><kbd>Space</kbd> / <kbd>H</kbd></td><td>stimulation (heatmap) on / off</td></tr>
     <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>previous / next solved contact</td></tr>
-    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>show V, |E|, |J|</td></tr>
+    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>show V, |E|, |J|, activating function</td></tr>
     <tr><td><kbd>C</kbd></td><td>cut: none → transverse → longitudinal</td></tr>
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>move the cut</td></tr>
     <tr><td><kbd>F</kbd></td><td>flip the side that is cut away</td></tr>
@@ -258,10 +260,11 @@ const Q_INFO = {
   V: { name: 'Potential V', short: 'V' },
   E: { name: 'Electric field |E|', short: '|E|' },
   J: { name: 'Current density |J|', short: '|J|' },
+  A: { name: 'Activating function', short: 'AF' },
 };
 const state = {
-  siteId: null, heatOn: false, quantity: 'V', cmap: 'turbo', current_uA: 1,
-  lo: { V: 0.25, E: 0.60, J: 0.60 }, hi: { V: 1, E: 1, J: 1 }, glow: 2, pulse: false,
+  siteId: null, heatOn: false, quantity: 'A', cmap: 'turbo', current_uA: 1,
+  lo: { V: 0.25, E: 0.60, J: 0.60, A: 0.50 }, hi: { V: 1, E: 1, J: 1, A: 1 }, glow: 2, pulse: false,
   cut: 'none', cutZ: 0, cutAngle: 90, cutOffset: 0, flip: false, keepContacts: true,
   show: { nerve: true, fascicles: true, cuff: true, contacts: true, labels: true }, fullLength: false,
   intensity: 0,
@@ -307,7 +310,7 @@ const texCache = {};                      // `${id}:${q}` -> Data3DTexture
   const P = (k) => urlParams.get(k);
   const askedSite = Number(P('site'));
   const first = M.solvedIds.includes(askedSite) ? askedSite : (M.solvedIds.includes(2) ? 2 : M.solvedIds[0]);
-  if (['V', 'E', 'J'].includes(P('q'))) state.quantity = P('q');
+  if (['V', 'E', 'J', 'A'].includes(P('q'))) state.quantity = P('q');
   if (P('cmap') === 'inferno') state.cmap = 'inferno';
   if (P('z') !== null) state.cutZ = Number(P('z'));
   if (P('flip') === '1') state.flip = true;
@@ -940,6 +943,7 @@ function onKey(e) {
   else if (k === '1') setQuantity('V');
   else if (k === '2') setQuantity('E');
   else if (k === '3') setQuantity('J');
+  else if (k === '4') setQuantity('A');
   else if (k === 'c') setCut({ none: 'transverse', transverse: 'longitudinal', longitudinal: 'none' }[state.cut]);
   else if (k === 'f') { state.flip = !state.flip; updateAll(); }
   else if (k === 'p') { state.pulse = !state.pulse; $('cbPulse').checked = state.pulse; }
@@ -1002,8 +1006,12 @@ function initPicking() {
    Updates.
    ====================================================================================== */
 function updateAll() {
+  const field = state.siteId != null ? NV.fields[state.siteId] : null;
+  // a field exported before a quantity existed (e.g. no activating function): fall back to V
+  if (field && !field.data[state.quantity]) state.quantity = 'V';
+  document.querySelectorAll('#segQ button').forEach((b) => { b.disabled = !!field && !field.data[b.dataset.q]; });
   const q = state.quantity;
-  const haveField = state.siteId != null && NV.fields[state.siteId];
+  const haveField = !!field;
   const tex = haveField ? fieldTexture(state.siteId, q) : null;
   const vu = volumeMesh.material.uniforms, su = sliceMesh.material.uniforms;
   if (tex) { vu.uData.value = tex; su.uData.value = tex; }
@@ -1064,7 +1072,10 @@ function updateColorbar() {
     return info.lo * Math.pow(info.hi / info.lo, t) * I;
   };
   const unit = info.unit.replace('uA', 'µA').replace('^2', '²');
-  $('cbName').innerHTML = `<b>${Q_INFO[q].name}</b> [${unit}]${info.scale === 'log' ? ' · log scale' : ''}`;
+  const extra = q === 'A'
+    ? `<br><span style="color:var(--muted)">cathodic pulse · depolarisation only · Δz = ${info.spacing_mm} mm · endoneurium only</span>`
+    : '';
+  $('cbName').innerHTML = `<b>${Q_INFO[q].name}</b> [${unit}]${info.scale === 'log' ? ' · log scale' : ''}${extra}`;
   $('cbInfo').textContent = `AS ${f.id} · ${I} µA${state.heatOn ? '' : ' · off'}`;
   const cv = $('cbCanvas'), ctx = cv.getContext('2d');
   const img = ctx.createImageData(cv.width, cv.height);

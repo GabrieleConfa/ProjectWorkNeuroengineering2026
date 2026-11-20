@@ -9,9 +9,20 @@ Papers/
 # Course material distributed by the tutor (everyone has it already)
 src/MatlabCode/*.pdf
 
-# Generated outputs (reproducible from scripts/)
+# Generated outputs (reproducible from scripts/), not versioned...
 results/*
 !results/.gitkeep
+# ...except, so that the group can open them without re-running MATLAB (decided 2026-11-20):
+# the browser-viewer data written by scripts/export_viewer_data.m (not its location cache)
+!results/viewer/
+results/viewer/*
+!results/viewer/*/
+results/viewer/*/*
+!results/viewer/*/*.js
+# and the figures of the 3D run (not the .mat solution: 50 MB now, ~150 MB with all 48 contacts)
+!results/main3d/
+results/main3d/*
+!results/main3d/*.png
 
 # MATLAB
 *.asv

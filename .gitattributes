@@ -6,3 +6,6 @@
 *.pdf binary
 *.png binary
 *.fig binary
+
+# Viewer data: one very long base64 line per file, generated -> no line diffs
+results/viewer/**/*.js -diff linguist-generated
