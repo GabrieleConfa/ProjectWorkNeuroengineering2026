@@ -67,11 +67,15 @@ represent finite active faces (0.2 × 0.2 mm in the supplied file).
 - **Inputs** are in `config/quicklook3DParams.m`. The 60 mm length, circular outer
   section and ten straight fascicles are provisional. The illustrative fascicle
   layout was chosen to exercise both interaction scenarios.
-- **Nerve and cuff apposition** are in `src/geometry/buildQuicklookNerve.m`. The
-  cuff faces are rigid planes. The sampled nerve surface meets each plane over
-  the full pad footprint and returns smoothly to the circle along the axis.
-  The flattening depth is prescribed, with no tissue mechanics or conservation
-  of cross-sectional area.
+- **Nerve and cuff apposition** are in `src/geometry/cuffContactPlane.m` and
+  `src/geometry/cuffDeformedRadius.m`. Each rigid plane is fitted to its finite
+  transverse pad width from `sites.mat`. The smallest central indentation that
+  puts the original circular or oval contour in contact with the whole pad is
+  computed from the contour and the pad edges, not entered as a fixed depth.
+  Only the nerve surface facing that pad is flattened. Smooth transverse and
+  axial returns outside the pad have editable, provisional widths of 0.12 and
+  0.40 mm. This geometric construction does not solve tissue mechanics,
+  conserve cross-sectional area or predict movement of internal fascicles.
 - **Strip and pads** are in `src/electrode/planQuicklookStrip.m`. The
   `deflect` case searches a family of smooth paths between fixed entry and exit
   points, keeping the fascicles fixed. It checks all polyline segments and pad
@@ -80,10 +84,12 @@ represent finite active faces (0.2 × 0.2 mm in the supplied file).
   case retains the straight path and returns the overlapping fascicle IDs in
   `modelStraight.strips(k).envelopeFascicles`. Overlap is geometric; this mode
   does not model rupture or estimate penetration probability.
-- **Visualization** is in `src/utils/plotQuicklookNerve.m`. The sampled nerve
-  shell, strip centrelines and active patches can be inspected separately from
-  the existing 2D FEM. Mesh generation, field solving and mechanical
-  displacement are outside this preview.
+- **Visualization** is in `src/utils/plotQuicklookNerve.m`,
+  `src/utils/plotStationAtlas.m` and `src/utils/plotCuffApposition.m`. The 3D
+  nerve, all eight current transverse stations, the strip route, and a
+  micrometre-scale view of local cuff contact can be inspected separately from
+  the existing 2D FEM. Field solving and mechanical displacement are outside
+  this preview.
 
 The [FINE experiments](https://pubmed.ncbi.nlm.nih.gov/12611367/) provide an
 example of a cuff reshaping a nerve. The

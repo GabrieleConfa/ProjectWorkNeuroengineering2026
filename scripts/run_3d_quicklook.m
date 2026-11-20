@@ -22,4 +22,6 @@ model.mode = mode; % Preserve the interaction assumption for later comparison.
 
 %% 2. Draw matching 3D and end-on views
 fig = plotQuicklookNerve(model); % Return a MATLAB figure that can be rotated and zoomed.
+model.graphics = plotStationAtlas(model); % Draw all eight layer-resolved sections and a deflection close-up.
+model.graphics.cuff = plotCuffApposition(model); % Magnify the finite cuff contact and its computed indentation.
 end % Return the figure and geometry for inspection or later mesh work.

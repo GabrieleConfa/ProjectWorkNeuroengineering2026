@@ -12,6 +12,9 @@ outDir = fullfile(fileparts(fileparts(mfilename('fullpath'))),'results','3d_prev
 if ~exist(outDir,'dir'), mkdir(outDir); end % Create the output folder on the first run.
 exportgraphics(fig,fullfile(outDir,"nerve_"+mode+".png"),Resolution=180); % Save the new 3D and end-on views.
 savefig(fig,fullfile(outDir,"nerve_"+mode+".fig")); % Save an interactive MATLAB figure.
+exportgraphics(model.graphics.atlas,fullfile(outDir,"all_stations_"+mode+".png"),Resolution=180); % Save all eight current anatomical sections.
+exportgraphics(model.graphics.deviation,fullfile(outDir,"deflection_"+mode+".png"),Resolution=180); % Save the routed versus straight comparison.
+exportgraphics(model.graphics.cuff,fullfile(outDir,"local_cuff_"+mode+".png"),Resolution=180); % Save the magnified cuff footprint and axial return.
 end % Return the 3D figure and model after all graphics are produced.
 function runExisting2D() % Isolate the original script's clearvars from the new entry point.
 root = fileparts(fileparts(mfilename('fullpath'))); % Locate the repository root.

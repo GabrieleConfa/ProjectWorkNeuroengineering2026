@@ -19,8 +19,9 @@ fascicles_mm = [0.000,  0.000, 0.38;  % F1, central demonstration obstacle.
 p.geometry.fascicles_m = [1e-3*fascicles_mm(:,1:2), 1e-3*fascicles_mm(:,3), ...
     1e-3*fascicles_mm(:,3), zeros(size(fascicles_mm,1),1)]; % Store [x y semi-axis x semi-axis y rotation_deg].
 %% 2. Cuff and strip geometry
-p.electrode.cuffIndentation_m = 0.12e-3; % Prescribe a flat contact depth for the first geometry check.
-p.electrode.cuffTransition_m = 0.40e-3; % Blend back to the circular nerve beyond each cuff pad edge.
+p.electrode.cuffExtraIndentation_m = 0; % Add no extra compression beyond the minimum needed for full pad contact.
+p.electrode.cuffTransition_m = 0.40e-3; % Blend along the nerve beyond each cuff pad edge.
+p.electrode.cuffLateralTransition_m = 0.12e-3; % Blend around the 0.20 mm pad width in the cross-section.
 p.electrode.maxDeflection_m = 0.8e-3; % Maximum lateral shift explored by the geometric search.
 %% 3. Provisional strip mechanics for a puncture feasibility screen
 p.electrode.stripWidth_m = 0.12e-3; % Assume a flexible strip narrower than its 0.20 mm active pads.

@@ -14,8 +14,6 @@ siteS_m = sites.centre_m(:,1:2)*u'; % Preserve each tutor contact's nominal alon
 fasc = p.geometry.fascicles_m; % Read the fixed provisional fascicles.
 peri_m = max(fasc(:,3:4),[],2) + p.geometry.tPeri_m; % Use the outer perineurium as the fascicle boundary.
 margin_m = p.electrode.stripWidth_m/2; % Derive the geometric collision envelope from the current strip width.
-cuffN = [cosd(cuffSites.theta_deg), sind(cuffSites.theta_deg)]; % Read the station's outward cuff normals.
-cuffPlane_m = arrayfun(@(k) nerveBoundaryRadius(p,cuffN(k,:)), 1:height(cuffSites)) - p.electrode.cuffIndentation_m; % Use the same cuff plane as the nerve surface.
 %% 2. Search for a smooth lateral route or retain a straight crossing
 offsets_m = [0, p.electrode.maxDeflection_m * reshape([1:160; -(1:160)], 1, []) / 160]; % Try small shifts first, in either direction.
 if mode == "penetrate" % Select the intentional straight-line scenario.
@@ -38,11 +36,11 @@ for offset_m = offsets_m % Evaluate offsets in order of magnitude.
         padXY(:,:,k) = xy + [-1; 1]*sites.sideXY_m(k)/2*tangent; % Build the straight edges of a flat contact.
         padDistance_m(k,:) = segmentDistances(padXY(1,:,k), padXY(2,:,k), fasc(:,1:2)); % Test the full contact width.
     end % Finish checking the pads.
-    pathRadius_m = nerveBoundaryRadius(p,path_m ./ max(vecnorm(path_m,2,2),eps)); % Find the oval boundary in every path direction.
-    inside = all(vecnorm(path_m,2,2) <= pathRadius_m + 1e-12) && all(path_m*cuffN' <= cuffPlane_m, 'all'); % Keep the intraneural centreline in the flattened station.
+    pathRadius_m = cuffDeformedRadius(p,cuffSites,z,path_m ./ max(vecnorm(path_m,2,2),eps)); % Check the actual locally indented contour.
+    inside = all(vecnorm(path_m,2,2) <= pathRadius_m' + 1e-12); % Keep the strip inside the nerve at its own section.
     padPoints = reshape(permute(padXY,[1 3 2]), [], 2); % Collect all transverse pad endpoints.
-    padRadius_m = nerveBoundaryRadius(p,padPoints ./ max(vecnorm(padPoints,2,2),eps)); % Find the oval boundary at each contact edge.
-    padInside = all(vecnorm(padPoints,2,2) <= padRadius_m) && all(padPoints*cuffN' <= cuffPlane_m, 'all'); % Keep finite contacts inside the tissue.
+    padRadius_m = cuffDeformedRadius(p,cuffSites,z,padPoints ./ max(vecnorm(padPoints,2,2),eps)); % Check the deformed contour at each finite pad edge.
+    padInside = all(vecnorm(padPoints,2,2) <= padRadius_m' + 1e-12); % Keep all active faces within the nerve.
     hasClearance = all(distance_m > peri_m' + margin_m, 'all') && all(padDistance_m > peri_m' + margin_m, 'all'); % Require clearance from every fascicle.
     if inside && padInside && (hasClearance || mode == "penetrate") % Accept only an admissible scenario.
         break % Keep the first route passing the checks.
