@@ -14,7 +14,7 @@ u = sites.centre_m(first,1:2)/sites.r_m(first); % Recover the tutor's nominal tr
 fasc = p.geometry.fascicles_m; % Read fascicle centres and endoneurium radii.
 along_m = fasc(:,1:2)*u'; % Locate each fascicle along the insertion axis.
 normal_m = fasc(:,1:2) - along_m*u; % Measure the transverse offset from that axis.
-outer_m = fasc(:,3) + p.geometry.tPeri_m; % Include the perineurium around each fascicle.
+outer_m = max(fasc(:,3:4),[],2) + p.geometry.tPeri_m; % Include the perineurium around each fascicle.
 intersects = vecnorm(normal_m,2,2) <= outer_m + width/2; % Include finite strip width in the straight-path collision.
 ids = find(intersects); % Report the fascicles met by the undeviated strip.
 normalAngle_deg = nan(size(ids)); % Allocate incidence angles for the encountered fascicles.

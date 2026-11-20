@@ -1,6 +1,9 @@
 function meshPreview = buildQuicklookMesh(p, cuffSites) % Mesh a short 3D slab through one flattened electrode station.
 %% 1. Define the station and its 2D material regions
 assert(all(cuffSites.section == cuffSites.section(1)), 'Choose one cuff pair from one station.'); % Keep a single axial slab.
+assert(all(abs(p.geometry.nerveSemiAxes_m - p.geometry.radius_m) < 1e-12) && ...
+    all(abs(p.geometry.fascicles_m(:,3)-p.geometry.fascicles_m(:,4)) < 1e-12), ...
+    'The local slab mesher currently requires circular nerve and fascicles.'); % Avoid silently meshing the wrong oval anatomy.
 R = p.geometry.radius_m; % Read the provisional nerve radius.
 depth = p.electrode.cuffIndentation_m; % Read the prescribed surface flattening.
 angles = linspace(0, 2*pi, 241); % Sample the undeformed circular nerve boundary.

@@ -5,6 +5,7 @@ arguments % Set defaults while allowing the anatomical inputs to be replaced lat
 end % Finish describing the inputs.
 
 %% 1. Load contacts and assemble the geometry in metres
+validateQuicklookAnatomy(p); % Check anatomical dimensions and placement before any geometry work.
 sites = loadActiveSites(p.electrode.sitesFile, p.geometry.radius_m); % Load the tutor's finite contact dimensions and orientations.
 cuffSites = sites(sites.type == "cuff", :); % Select the two external contacts per station.
 stripSites = sites(sites.type == "intraneural", :); % Select the four internal pads per station.

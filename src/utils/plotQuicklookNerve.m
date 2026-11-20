@@ -20,9 +20,11 @@ surf(space, mm*nerve.x_m, mm*nerve.y_m, mm*nerve.z_m, ...
 plot(front, mm*nerve.x_m(1,:), mm*nerve.y_m(1,:), ...
     Color=[0.26 0.27 0.32], LineWidth=1.5); % Plot the nerve silhouette beyond the electrode stations.
 for k = 1:size(fasc,1) % Draw the fixed outer perineurium boundaries.
-    r_m = fasc(k,3) + p.geometry.tPeri_m; % Include the perineurium thickness in the displayed radius.
-    x_mm = mm*(fasc(k,1) + r_m*cos(theta)); % Compute the cross-section x samples.
-    y_mm = mm*(fasc(k,2) + r_m*sin(theta)); % Compute the cross-section y samples.
+    a_m = fasc(k,3) + p.geometry.tPeri_m; % Include perineurium along the first fascicle axis.
+    b_m = fasc(k,4) + p.geometry.tPeri_m; % Include perineurium along the second fascicle axis.
+    angle_deg = fasc(k,5); % Read the fascicle rotation around the nerve axis.
+    x_mm = mm*(fasc(k,1) + a_m*cos(theta)*cosd(angle_deg) - b_m*sin(theta)*sind(angle_deg)); % Rotate the oval x samples.
+    y_mm = mm*(fasc(k,2) + a_m*cos(theta)*sind(angle_deg) + b_m*sin(theta)*cosd(angle_deg)); % Rotate the oval y samples.
     surf(space, repmat(x_mm,2,1), repmat(y_mm,2,1), mm*repmat(z_m,1,numel(theta)), ...
         FaceColor=[0.70 0.43 0.31], FaceAlpha=0.26, EdgeColor="none"); % Draw the fascicle along the nerve axis.
     patch(front, x_mm, y_mm, [0.97 0.88 0.80], EdgeColor=[0.60 0.44 0.37]); % Show the same fascicle in transverse projection.
@@ -57,8 +59,8 @@ ylabel(space,'y [mm]'); % Label the transverse y coordinate.
 zlabel(space,'z [mm]'); % Label the nerve axis and station positions.
 title(space,'3D | 8 electrode stations'); % Identify the full device view.
 axis(front,'equal'); % Keep the front view circular in the undeformed region.
-xlim(front, mm*p.geometry.radius_m*[-1.1 1.1]); % Frame the transverse geometry.
-ylim(front, mm*p.geometry.radius_m*[-1.1 1.1]); % Use the same view extent in both directions.
+xlim(front, mm*max(p.geometry.nerveSemiAxes_m)*[-1.1 1.1]); % Frame the transverse geometry.
+ylim(front, mm*max(p.geometry.nerveSemiAxes_m)*[-1.1 1.1]); % Use the same view extent in both directions.
 xlabel(front,'x [mm]'); % Label the frontal x coordinate.
 ylabel(front,'y [mm]'); % Label the frontal y coordinate.
 title(front, ["End-on projection | 4 mirrored pairs", "Thin lines: strips  •  Thick lines: active faces"]); % Explain the overlaid station pairs and contacts.

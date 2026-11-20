@@ -110,3 +110,16 @@ force. Its dimensions, unsupported length and material proxy are editable in
 collision envelope. The screen cannot predict a penetration percentage or
 confirm rupture. The source and assumptions are listed in
 `docs/insertion_evidence.md`.
+
+The current 3D anatomy is entered in `config/quicklook3DParams.m` as the
+nerve's two transverse semi-axes, rotation, and one `[x y semi-axis-x semi-axis-y rotation-deg]`
+row per fascicle, all in SI units. The 3D view accepts a different fascicle
+count and an oval nerve outline. `validateQuicklookAnatomy` rejects invalid
+sizes, clear boundary violations and overlapping fascicles. The local slab
+mesh and the historical 2D FEM still use their earlier circular sections.
+The original 2D figures are preserved under `results/2d_sites` and describe
+the tutor P00 section with seven fascicles. The new 3D figures under
+`results/3d_preview` describe the current ten-fascicle quicklook anatomy.
+Use `run_complete_preview` to generate both sets in one MATLAB run.
+
+The quicklook collision check uses each fascicle's larger semi-axis as a conservative circular envelope. The displayed fascicle is oval when its axes differ. Exact oval contact mechanics remains part of the later calibrated model.

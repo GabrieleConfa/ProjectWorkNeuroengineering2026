@@ -4,21 +4,26 @@ function strip = planQuicklookStrip(p, sites, cuffSites, mode) % Place one trans
 u = sites.centre_m(order(1),1:2) / sites.r_m(order(1)); % Get the nominal transverse insertion direction.
 v = [-u(2), u(1)]; % Define the lateral direction used for candidate deflections.
 z = sites.z_m(1); % Keep the station at its measured longitudinal coordinate.
-R = p.geometry.radius_m; % Read the circular nerve radius away from cuff clipping.
-s_m = linspace(-R, R, 301)'; % Sample the strip from one nerve surface to the opposite surface.
+R = max(p.geometry.nerveSemiAxes_m); % Use the outer scale for the deflection family.
+entryRadius_m = nerveBoundaryRadius(p,-u); % Find the configured nerve edge at the entry side.
+exitRadius_m = nerveBoundaryRadius(p,u); % Find the configured nerve edge at the exit side.
+s_m = linspace(-entryRadius_m, exitRadius_m, 301)'; % Sample between the true oval surface intersections.
+span_m = (entryRadius_m+exitRadius_m)/2; % Set the half-span for a dimensionless bending profile.
+midpoint_m = (exitRadius_m-entryRadius_m)/2; % Locate the midpoint between the two boundary points.
 siteS_m = sites.centre_m(:,1:2)*u'; % Preserve each tutor contact's nominal along-strip coordinate.
 fasc = p.geometry.fascicles_m; % Read the fixed provisional fascicles.
-peri_m = fasc(:,3) + p.geometry.tPeri_m; % Use the outer perineurium as the fascicle boundary.
+peri_m = max(fasc(:,3:4),[],2) + p.geometry.tPeri_m; % Use the outer perineurium as the fascicle boundary.
 margin_m = p.electrode.stripWidth_m/2; % Derive the geometric collision envelope from the current strip width.
 cuffN = [cosd(cuffSites.theta_deg), sind(cuffSites.theta_deg)]; % Read the station's outward cuff normals.
-cuffPlane_m = R - p.electrode.cuffIndentation_m; % Use the same cuff plane as the nerve surface.
+cuffPlane_m = arrayfun(@(k) nerveBoundaryRadius(p,cuffN(k,:)), 1:height(cuffSites)) - p.electrode.cuffIndentation_m; % Use the same cuff plane as the nerve surface.
 %% 2. Search for a smooth lateral route or retain a straight crossing
 offsets_m = [0, p.electrode.maxDeflection_m * reshape([1:160; -(1:160)], 1, []) / 160]; % Try small shifts first, in either direction.
 if mode == "penetrate" % Select the intentional straight-line scenario.
     offsets_m = 0; % Keep the tutor's nominal path and report intersections.
 end % Finish selecting the route search.
 for offset_m = offsets_m % Evaluate offsets in order of magnitude.
-    bump = (1 - (s_m/R).^2).^2; % Keep the strip entrances and their directions fixed.
+    q = (s_m-midpoint_m)/span_m; % Normalize the insertion position between the two surfaces.
+    bump = (1 - q.^2).^2; % Keep the strip entrances and their directions fixed.
     path_m = s_m*u + offset_m*bump*v; % Build the candidate centreline in the transverse plane.
     distance_m = segmentDistances(path_m(1:end-1,:), path_m(2:end,:), fasc(:,1:2)); % Check complete polyline segments.
     padXY = zeros(2, 2, height(sites)); % Allocate the two transverse endpoints of each planar pad.
@@ -26,15 +31,18 @@ for offset_m = offsets_m % Evaluate offsets in order of magnitude.
     for k = 1:height(sites) % Construct each finite pad on the deformed path.
         s = siteS_m(k); % Read this contact's fixed station along the nominal insertion line.
         xy = interp1(s_m, path_m, s, 'linear'); % Locate the pad centre on the sampled strip.
-        slope = -4*offset_m*s/R^2 * (1 - (s/R)^2); % Differentiate the lateral displacement at the pad.
+        qPad = (s-midpoint_m)/span_m; % Normalize this pad position along the insertion.
+        slope = -4*offset_m*qPad/span_m * (1 - qPad^2); % Differentiate the lateral displacement at the pad.
         tangent = u + slope*v; % Match the pad direction to the strip tangent.
         tangent = tangent / norm(tangent); % Preserve the original transverse pad width.
         padXY(:,:,k) = xy + [-1; 1]*sites.sideXY_m(k)/2*tangent; % Build the straight edges of a flat contact.
         padDistance_m(k,:) = segmentDistances(padXY(1,:,k), padXY(2,:,k), fasc(:,1:2)); % Test the full contact width.
     end % Finish checking the pads.
-    inside = all(vecnorm(path_m,2,2) <= R + 1e-12) && all(path_m*cuffN' <= cuffPlane_m, 'all'); % Keep the intraneural centreline in the flattened station.
+    pathRadius_m = nerveBoundaryRadius(p,path_m ./ max(vecnorm(path_m,2,2),eps)); % Find the oval boundary in every path direction.
+    inside = all(vecnorm(path_m,2,2) <= pathRadius_m + 1e-12) && all(path_m*cuffN' <= cuffPlane_m, 'all'); % Keep the intraneural centreline in the flattened station.
     padPoints = reshape(permute(padXY,[1 3 2]), [], 2); % Collect all transverse pad endpoints.
-    padInside = all(vecnorm(padPoints,2,2) <= R) && all(padPoints*cuffN' <= cuffPlane_m, 'all'); % Keep finite contacts inside the tissue.
+    padRadius_m = nerveBoundaryRadius(p,padPoints ./ max(vecnorm(padPoints,2,2),eps)); % Find the oval boundary at each contact edge.
+    padInside = all(vecnorm(padPoints,2,2) <= padRadius_m) && all(padPoints*cuffN' <= cuffPlane_m, 'all'); % Keep finite contacts inside the tissue.
     hasClearance = all(distance_m > peri_m' + margin_m, 'all') && all(padDistance_m > peri_m' + margin_m, 'all'); % Require clearance from every fascicle.
     if inside && padInside && (hasClearance || mode == "penetrate") % Accept only an admissible scenario.
         break % Keep the first route passing the checks.

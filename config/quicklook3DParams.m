@@ -2,7 +2,9 @@ function p = quicklook3DParams() % Collect the editable inputs for the 3D geomet
 %% 1. Provisional nerve section
 p = pw6_2d_params(); % Reuse the group settings and tutor's contact file.
 p.domain.length_m = 60e-3; % Show the full 6 cm segment discussed with the tutor.
-p.geometry.radius_m = p.geometry.pw6.nerveRadius_m; % Use the area-equivalent PW6 circle for now.
+p.geometry.radius_m = p.geometry.pw6.nerveRadius_m; % Retain a scalar scale for the provisional circle.
+p.geometry.nerveSemiAxes_m = [p.geometry.radius_m, p.geometry.radius_m]; % Edit these two values when the oval axes arrive.
+p.geometry.nerveRotation_deg = 0; % Edit the cross-section rotation when measured.
 % These illustrative positions allow both a straight crossing and a clear route at every station.
 fascicles_mm = [0.000,  0.000, 0.38;  % F1, central demonstration obstacle.
                 1.245,  0.345, 0.21;  % F2, peripheral.
@@ -14,7 +16,8 @@ fascicles_mm = [0.000,  0.000, 0.38;  % F1, central demonstration obstacle.
                -0.355, -1.305, 0.21;  % F8, peripheral.
                 0.670, -1.005, 0.21;  % F9, peripheral.
                 1.245, -0.480, 0.21]; % F10, peripheral.
-p.geometry.fascicles_m = 1e-3 * fascicles_mm; % Convert [x y endoneurium radius] from mm to metres.
+p.geometry.fascicles_m = [1e-3*fascicles_mm(:,1:2), 1e-3*fascicles_mm(:,3), ...
+    1e-3*fascicles_mm(:,3), zeros(size(fascicles_mm,1),1)]; % Store [x y semi-axis x semi-axis y rotation_deg].
 %% 2. Cuff and strip geometry
 p.electrode.cuffIndentation_m = 0.12e-3; % Prescribe a flat contact depth for the first geometry check.
 p.electrode.cuffTransition_m = 0.40e-3; % Blend back to the circular nerve beyond each cuff pad edge.

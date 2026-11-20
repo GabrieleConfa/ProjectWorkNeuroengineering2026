@@ -18,24 +18,25 @@ for k = 1:height(cuffSites) % Refine the axial surface where each pad and taper 
 end % Finish refining stations.
 z_m = unique(z_m(:)); % Sort axial positions and remove duplicates.
 directions = [cos(theta(:)), sin(theta(:))]; % Represent rays in the transverse plane.
-radius_m = R * ones(numel(z_m), numel(theta)); % Start with the circular nerve at every level.
+radius_m = repmat(nerveBoundaryRadius(p,directions)',numel(z_m),1); % Start with the configured oval at every level.
 %% 2. Flatten the nerve and place the rigid active surfaces
 cuffFaces_m = zeros(4, 3, height(cuffSites)); % Allocate four vertices for each finite-area patch.
-rPeri_m = p.geometry.fascicles_m(:,3) + p.geometry.tPeri_m; % Include the perineurium in containment checks.
+rPeri_m = max(p.geometry.fascicles_m(:,3:4),[],2) + p.geometry.tPeri_m; % Include the perineurium in containment checks.
 centres_m = p.geometry.fascicles_m(:,1:2); % Keep the provisional fascicles straight and fixed.
 for k = 1:height(cuffSites) % Clip the circular surface against each fixed cuff plane.
     n = normals(k,:); % Get the outward unit normal of this cuff.
     tangent = [-n(2), n(1)]; % Get the in-plane transverse direction of this cuff.
     t = max(0, min(1, (abs(z_m - cuffSites.z_m(k)) - cuffSites.sideZ_m(k)/2) / transition)); % Scale distance through the taper.
-    plane_m = R - depth*(1 - t.^2.*(3 - 2*t)); % Use a flat plateau and a smooth axial transition.
+    support_m = nerveBoundaryRadius(p,n); % Find the undeformed outer radius in this pad direction.
+    plane_m = support_m - depth*(1 - t.^2.*(3 - 2*t)); % Use a flat plateau and a smooth axial transition.
     projection = directions*n'; % Project each transverse ray onto the cuff normal.
     forward = projection > 0; % Only outward-facing rays can meet this plane.
     radius_m(:,forward) = min(radius_m(:,forward), plane_m ./ projection(forward)'); % Trim rays at the plane.
     halfWidth = cuffSites.sideXY_m(k)/2; % Read half the transverse pad width.
     halfLength = cuffSites.sideZ_m(k)/2; % Read half the axial pad length.
-    assert(hypot(R-depth, halfWidth) < R, 'Cuff pad exceeds the flat nerve chord.'); % Fit every pad corner on the chord.
-    assert(all(centres_m*n' + rPeri_m < R-depth), 'Cuff plane intersects a fascicle.'); % Skip infeasible deformation inputs.
-    xy = (R-depth)*n + [-1; 1; 1; -1]*halfWidth*tangent; % Put all four pad vertices on the flat surface.
+    assert(all(vecnorm((support_m-depth)*n + [-1;1]*halfWidth*tangent,2,2) <= max(p.geometry.nerveSemiAxes_m)), 'Cuff pad exceeds nerve bounds.'); % Reject grossly oversized pads.
+    assert(all(centres_m*n' + rPeri_m < support_m-depth), 'Cuff plane intersects a fascicle.'); % Skip infeasible deformation inputs.
+    xy = (support_m-depth)*n + [-1; 1; 1; -1]*halfWidth*tangent; % Put all four pad vertices on the flat surface.
     zz = cuffSites.z_m(k) + [-1; -1; 1; 1]*halfLength; % Set the pad's finite axial interval.
     cuffFaces_m(:,:,k) = [xy, zz]; % Store the active face without a bulk electrode.
 end % Finish applying the cuff stations.
