@@ -168,6 +168,22 @@ Table, one row per site at its threshold current: `Q_C`, `chargeDensity_Cpm2`, `
 - **Mesh budget:** a 40 µm perineurium meshed at 20 µm along ≈ 25 mm of nerve gives ≈ 10⁷
   tetrahedra — too many. Options are listed in `decisions.md` (perineurium representation).
 
+### Update 2026-11-13 — what the 3D pipeline actually uses
+
+`src/main/main_pipeline_3d.m` (decisions D-02 … D-09) departs from the plan above in three points:
+- **`buildNerveGeometry3D(patient, sites, params)`** (not `(xsec, params)`): it builds its own 2D
+  section with the contact footprints, extrudes it in layers and merges/deletes cells
+  (`mergeCells`, `deleteCell`, `findCell`, all available in R2025a). There is no
+  `buildCrossSection2D` / `addActiveSites` step: the contacts come from the footprints.
+- **No `createpde`/`femodel` solve.** The perineurium is a thin layer (D-06), which the toolbox
+  cannot represent, so the system is assembled by `src/fem/assembleConductionP1.m` +
+  `thinLayerInterface.m` and solved with `\`; `interpolateP1.m` evaluates V anywhere. Anisotropy
+  is a 3 × nElem conductivity array (no toolbox restriction any more).
+- `makePatient` is implemented (seed = NaN → P00; otherwise `generateFascicleLayout`, D-09).
+`meshNerveModel`, `solveUnitCurrent`, `addActiveSites` are still skeletons; the corresponding code
+lives in local functions/sections of `main_pipeline_3d.m` and can be moved there when the
+interfaces are agreed.
+
 ## 6. Reuse of the tutor's code
 
 `src/MatlabCode/PW_lesson_5_11_students.m` (2D cross-section, tissues, mesh, plots) is the

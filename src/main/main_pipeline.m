@@ -20,7 +20,8 @@
 %   - contacts: gold, ideal contact boundaries = holes whose boundary is an equipotential.
 %     The active contact is held at 1 V, its current is read from the FE system ("reaction")
 %     and the solution is scaled to the wanted current (the problem is linear). Idle contacts
-%     are insulating holes;
+%     are insulating holes. Cuff contacts are curved strips that follow the nerve surface
+%     (config: electrode.cuffShape = "conforming"; "flat" gives the box of sites.mat);
 %   - outer boundary of the muscle: grounded (V = 0);
 %   - bipolar pair (cathode c, anode a): two solves with both contacts at fixed potentials,
 %     then the combination that gives -I on c and +I on a, both contacts equipotential.
@@ -32,11 +33,12 @@
 % how each contact spreads current among the fascicles.
 %
 % Units: SI inside the code (m, S/m, A, V); mm only in the plots.
-% Run from the project root:   setup_paths; main_pipeline
+% Run: press Run in the editor, or type main_pipeline (the script adds the project paths itself).
 
 clear; close all; clc;
 mm = 1e-3;
 root   = fileparts(fileparts(fileparts(mfilename('fullpath'))));   % project root
+addpath(root);  setup_paths;                               % src/, config/ on the path
 outDir = fullfile(root, 'results', 'main');
 if ~exist(outDir, 'dir'), mkdir(outDir); end
 
@@ -67,24 +69,31 @@ isCuff = S.type == "cuff";
 assert(p.electrode.cuffPlacement == "surface", 'Only cuff placement "surface" is implemented.');
 S.r_m(isCuff) = R + S.thickness_m(isCuff) / 2;             % face resting on the nerve surface
 S.centre_m(isCuff, 1:2) = S.r_m(isCuff) .* [cosd(S.theta_deg(isCuff)), sind(S.theta_deg(isCuff))];
+% Cuff shape (config): "conforming" = curved strip R...R+t whose inner arc is sideXY long, so
+% its half-angle is (sideXY/2)/R; "flat" = the box of sites.mat. S.curved marks curved contacts.
+S.curved = isCuff & p.electrode.cuffShape == "conforming";
+S.halfAngle_rad = nan(nS, 1);
+S.halfAngle_rad(S.curved) = (S.sideXY_m(S.curved) / 2) / R;
 contactLabel = "AS " + S.id + " (" + string(S.type) + ")";
 
-fprintf('Station %+d (z = %.1f mm): %d contacts, %s, %.0f um thick\n', station, ...
-        S.z_m(1) / mm, nS, p.electrode.material, S.thickness_m(1) / 1e-6);
-corners = contactCorners(S);                               % 4 x 2 x nS [m]
+fprintf('Station %+d (z = %.1f mm): %d contacts, %s, %.0f um thick, cuff contacts %s\n', station, ...
+        S.z_m(1) / mm, nS, p.electrode.material, S.thickness_m(1) / 1e-6, p.electrode.cuffShape);
+outlines = contactOutlines(S, R);                          % polygon of each contact [m]
 for k = 1:nS
     fprintf('   %-18s lies in: %s\n', contactLabel(k), describeTissue(S(k,:), fasc, tPeri, R, tissueName));
 end
 
 
 %% ===== 2. GEOMETRY ===================================================================
-% Circles (muscle, nerve, perineurium and endoneurium of each fascicle) minus the contact
-% rectangles (holes). decsg splits the plane into faces; bt says which shapes contain each face.
-[dl, bt] = crossSectionGeometry(R, Rmed, fasc, tPeri, corners);
+% Circles (muscle, nerve, perineurium and endoneurium of each fascicle) minus the contacts
+% (holes). decsg splits the plane into faces; bt says which shapes contain each face.
+% A curved cuff contact is built as (ring R...R+t) * (wedge) - nerve, so that its inner arc is
+% exactly the nerve circle; the helper edges this leaves inside the tissue are then deleted.
+[dl, bt] = crossSectionGeometry(R, Rmed, fasc, tPeri, S);
 g = fegeometry(dl);
 assert(size(bt, 1) == g.NumFaces && g.NumEdges == size(dl, 2), 'Unexpected geometry numbering.');
 [faceTissue, faceFasc] = faceTissues(bt, nFasc);           % 1 endo, 2 peri, 3 epi, 4 muscle
-contactEdges = findContactEdges(dl, S);                    % geometry edges of each contact
+contactEdges = findContactEdges(dl, S, R);                 % geometry edges of each contact
 outerEdges = find(dl(1,:) == 1 & abs(hypot(dl(2,:), dl(4,:)) - Rmed) < 1e-9);
 fprintf('\nGeometry: %d faces, %d edges\n', g.NumFaces, g.NumEdges);
 
@@ -107,13 +116,12 @@ q   = meshQuality(msh);
 fprintf('Mesh: %d nodes, %d quadratic triangles, quality mean %.2f / min %.2f\n', ...
         nN, size(msh.Elements, 2), mean(q), min(q));
 
-% Check: the mesh nodes of each contact's edges lie on that contact's rectangle
+% Check: the mesh nodes of each contact's edges lie on that contact
 contactNodes = cell(nS, 1);
 for k = 1:nS
     contactNodes{k} = findNodes(msh, "region", "Edge", contactEdges{k});
-    [a, b] = localCoords(msh.Nodes(:, contactNodes{k}), S(k,:));
-    assert(all(abs(a) <= S.thickness_m(k)/2 * (1 + 1e-6) & abs(b) <= S.sideXY_m(k)/2 * (1 + 1e-6)), ...
-           'Contact %d: its edges are not on its rectangle.', S.id(k));
+    assert(all(onContact(msh.Nodes(:, contactNodes{k}), S(k,:), R, 1e-6)), ...
+           'Contact %d: its edges are not on its outline.', S.id(k));
 end
 
 
@@ -186,7 +194,8 @@ fprintf('\nMean |E| in each endoneurium [V/m for %g A/m]:\n', I0);
 disp(array2table(round(meanEendo), 'RowNames', cellstr(cfgLabel), 'VariableNames', cellstr(fascLabel)));
 
 tag = sprintf('PW6_station%+d', station);
-geo = struct('msh', msh, 'R', R, 'fasc', fasc, 'tPeri', tPeri, 'corners', corners);
+geo = struct('msh', msh, 'R', R, 'fasc', fasc, 'tPeri', tPeri);
+geo.outlines = outlines;
 plotGeometryAndMesh(geo, S, faceTissue, sprintf('Station %+d (z = %.1f mm)', station, S.z_m(1)/mm), ...
                     fullfile(outDir, tag + "_geometry.png"));
 plotMaps(geo, mono.V, Emag(:, 1:nS), contactLabel, sprintf('Monopolar, %g A/m', I0), ...
@@ -207,14 +216,27 @@ fprintf('\nDone: %s.mat and figures in %s\n', tag, outDir);
 
 
 %% ===== LOCAL FUNCTIONS ===============================================================
-function corners = contactCorners(S)
-%CONTACTCORNERS Corners [m] of each contact rectangle in the x-y plane (4 x 2 x nContacts),
-% counterclockwise: centre +/- (t/2) n +/- (s/2) w.
+function corners = rectCorners(site)
+%RECTCORNERS Corners [m] of a box contact in the x-y plane (4 x 2), counterclockwise:
+% centre +/- (t/2) n +/- (s/2) w.
 sgn = [-1 -1; 1 -1; 1 1; -1 1];
-corners = zeros(4, 2, height(S));
+corners = site.centre_m(1:2) + sgn(:,1) * (site.thickness_m/2) * site.n(1:2) ...
+                             + sgn(:,2) * (site.sideXY_m/2)    * site.w(1:2);
+end
+
+function outlines = contactOutlines(S, R)
+%CONTACTOUTLINES Closed polygon [m] (N x 2) of every contact, for plots: the 4 corners of a
+% box, or the inner arc (r = R) and outer arc (r = R + t) of a curved cuff contact.
+outlines = cell(height(S), 1);
 for k = 1:height(S)
-    corners(:, :, k) = S.centre_m(k, 1:2) + sgn(:,1) * (S.thickness_m(k)/2) * S.n(k, 1:2) ...
-                                          + sgn(:,2) * (S.sideXY_m(k)/2)   * S.w(k, 1:2);
+    if S.curved(k)
+        a = deg2rad(S.theta_deg(k)) + linspace(-1, 1, 41)' * S.halfAngle_rad(k);
+        r = [R * ones(41, 1); (R + S.thickness_m(k)) * ones(41, 1)];
+        a = [a; flipud(a)];
+        outlines{k} = [r .* cos(a), r .* sin(a)];
+    else
+        outlines{k} = rectCorners(S(k,:));
+    end
 end
 end
 
@@ -224,10 +246,29 @@ d = xy - site.centre_m(1:2)';
 a = site.n(1:2) * d;   b = site.w(1:2) * d;
 end
 
+function ok = onContact(xy, site, R, relTol)
+%ONCONTACT True for the points xy [m] (2 x N) that lie on (or inside) the outline of a contact,
+% within a relative tolerance: the box, or the curved strip R <= r <= R+t, |angle| <= half-angle.
+if site.curved
+    r  = hypot(xy(1,:), xy(2,:));
+    da = angle(exp(1i * (atan2(xy(2,:), xy(1,:)) - deg2rad(site.theta_deg))));   % wrapped
+    ok = r >= R * (1 - relTol) & r <= (R + site.thickness_m) * (1 + relTol) & ...
+         abs(da) <= site.halfAngle_rad * (1 + relTol) + 1e-12;
+else
+    [a, b] = localCoords(xy, site);
+    ok = abs(a) <= site.thickness_m/2 * (1 + relTol) & abs(b) <= site.sideXY_m/2 * (1 + relTol);
+end
+end
+
 function txt = describeTissue(site, fasc, tPeri, R, tissueName)
 %DESCRIBETISSUE Tissues crossed by the mid-line of a contact, with the fraction of its length.
-s = linspace(-0.5, 0.5, 201)' * site.sideXY_m;
-pts = site.centre_m(1:2) + s * site.w(1:2);
+if site.curved                                             % mid-line = arc at r = R + t/2
+    a = deg2rad(site.theta_deg) + linspace(-1, 1, 201)' * site.halfAngle_rad;
+    pts = (R + site.thickness_m/2) * [cos(a), sin(a)];
+else
+    s = linspace(-0.5, 0.5, 201)' * site.sideXY_m;
+    pts = site.centre_m(1:2) + s * site.w(1:2);
+end
 tis = 4 * ones(size(pts, 1), 1);   fid = zeros(size(pts, 1), 1);
 tis(hypot(pts(:,1), pts(:,2)) <= R) = 3;
 for i = 1:size(fasc, 1)
@@ -246,22 +287,62 @@ end
 txt = strjoin(parts, ', ');
 end
 
-function [dl, bt] = crossSectionGeometry(R, Rmed, fasc, tPeri, corners)
+function [dl, bt] = crossSectionGeometry(R, Rmed, fasc, tPeri, S)
 %CROSSSECTIONGEOMETRY decsg geometry: circles M (muscle), N (nerve), P_i (perineurium) and
-% E_i (endoneurium) united, minus the contact rectangles S_k. Columns of bt: M, N, P1, E1, ...
-nF = size(fasc, 1);   nC = 2 + 2*nF;   nS = size(corners, 3);
-gd = zeros(10, nC + nS);   names = strings(1, nC + nS);
-gd(1:4, 1) = [1; 0; 0; Rmed];   names(1) = "M";
-gd(1:4, 2) = [1; 0; 0; R];      names(2) = "N";
+% E_i (endoneurium) united, minus the contacts. Columns 1...2+2*nF of bt: M, N, P1, E1, ...
+%   box contact k:    rectangle "Sk"
+%   curved contact k: ((C * Wk) - N), with C the circle of radius R + t (shared by all curved
+%                     contacts, which have the same thickness) and Wk a quadrilateral whose
+%                     two sides are radial lines at +/- half-angle, reaching from inside the
+%                     nerve (0.97 R) to beyond C. The result is the strip R...R+t between the
+%                     two radial lines, with its inner arc exactly on the nerve circle.
+% decsg keeps every boundary of the shapes, so the parts of C and of Wk that lie inside the
+% tissue (both sides in the domain) are deleted afterwards with csgdel: only the tissue
+% circles and the contact outlines remain.
+nF = size(fasc, 1);   nC = 2 + 2*nF;   nS = height(S);
+gd = zeros(10, 0);   names = strings(1, 0);   tissueCirc = zeros(3, 0);   % [xc; yc; r]
+gd(:, end+1) = [1; 0; 0; Rmed; zeros(6,1)];   names(end+1) = "M";   tissueCirc(:, end+1) = [0; 0; Rmed];
+gd(:, end+1) = [1; 0; 0; R;    zeros(6,1)];   names(end+1) = "N";   tissueCirc(:, end+1) = [0; 0; R];
 for i = 1:nF
-    gd(1:4, 1+2*i) = [1; fasc(i,1); fasc(i,2); fasc(i,3) + tPeri];   names(1+2*i) = "P" + i;
-    gd(1:4, 2+2*i) = [1; fasc(i,1); fasc(i,2); fasc(i,3)];           names(2+2*i) = "E" + i;
+    rP = fasc(i,3) + tPeri;
+    gd(:, end+1) = [1; fasc(i,1); fasc(i,2); rP;        zeros(6,1)];   names(end+1) = "P" + i;
+    gd(:, end+1) = [1; fasc(i,1); fasc(i,2); fasc(i,3); zeros(6,1)];   names(end+1) = "E" + i;
+    tissueCirc(:, end+1:end+2) = [fasc(i,1:2)', fasc(i,1:2)'; rP, fasc(i,3)];
+end
+holes = strings(1, nS);
+if any(S.curved)
+    tC = unique(S.thickness_m(S.curved));
+    assert(isscalar(tC), 'Curved contacts must have the same thickness.');
+    gd(:, end+1) = [1; 0; 0; R + tC; zeros(6,1)];   names(end+1) = "C";
 end
 for k = 1:nS
-    gd(:, nC + k) = [2; 4; corners(:,1,k); corners(:,2,k)];   names(nC + k) = "S" + k;
+    if S.curved(k)
+        th = deg2rad(S.theta_deg(k));   ha = S.halfAngle_rad(k);
+        rIn = 0.97 * R;   rOut = (R + S.thickness_m(k)) * 1.05 / cos(ha);
+        a = th + [-ha, -ha, ha, ha];   r = [rIn, rOut, rOut, rIn];    % counterclockwise
+        gd(:, end+1) = [2; 4; (r .* cos(a))'; (r .* sin(a))'];   names(end+1) = "W" + k;
+        holes(k) = "((C*W" + k + ")-N)";
+    else
+        c = rectCorners(S(k,:));
+        gd(:, end+1) = [2; 4; c(:,1); c(:,2)];   names(end+1) = "S" + k;
+        holes(k) = "S" + k;
+    end
 end
-sf = "(" + strjoin(names(1:nC), "+") + ")-(" + strjoin(names(nC+1:end), "+") + ")";
+sf = "(" + strjoin(names(1:nC), "+") + ")-(" + strjoin(holes, "+") + ")";
 [dl, bt] = decsg(gd, char(sf), char(names(:))');
+
+% Delete the helper edges inside the tissue: edges with the domain on both sides
+% (rows 6-7 of dl = faces on the left/right, 0 = outside) that are not a tissue circle.
+interior = dl(6,:) > 0 & dl(7,:) > 0;
+isTissueCircle = false(1, size(dl, 2));
+for e = find(dl(1,:) == 1)
+    d = abs(tissueCirc - [dl(8,e); dl(9,e); dl(10,e)]);
+    isTissueCircle(e) = any(all(d < 1e-12, 1));
+end
+helper = find(interior & ~isTissueCircle);
+if ~isempty(helper)
+    [dl, bt] = csgdel(dl, bt, helper);
+end
 end
 
 function [faceTissue, faceFasc] = faceTissues(bt, nF)
@@ -277,20 +358,44 @@ for f = 1:nFaces
 end
 end
 
-function edges = findContactEdges(dl, S)
-%FINDCONTACTEDGES Geometry edges of each contact: straight dl segments whose midpoint lies on
-% the contact rectangle (a side crossing a tissue boundary is split into several edges).
-% Checks that the edges found add up to the contact perimeter.
-isLine = dl(1,:) == 2;
-mid = [(dl(2,:) + dl(3,:)) / 2; (dl(4,:) + dl(5,:)) / 2];
-len = hypot(dl(3,:) - dl(2,:), dl(5,:) - dl(4,:));
+function edges = findContactEdges(dl, S, R)
+%FINDCONTACTEDGES Geometry edges of each contact: boundary edges of the domain (one side
+% outside) whose midpoint lies on the contact outline (a side crossing a tissue boundary is
+% split into several edges). Checks that the edges found add up to the contact perimeter.
+[mid, len] = edgeMidLength(dl);
+isBoundary = xor(dl(6,:) > 0, dl(7,:) > 0);
 edges = cell(height(S), 1);
 for k = 1:height(S)
-    [a, b] = localCoords(mid, S(k,:));
-    ha = S.thickness_m(k) / 2;   hb = S.sideXY_m(k) / 2;   tol = 1e-3 * ha;
-    on = (abs(abs(a) - ha) < tol & abs(b) <= hb + tol) | (abs(abs(b) - hb) < tol & abs(a) <= ha + tol);
-    edges{k} = find(isLine & on);
-    assert(abs(sum(len(edges{k})) - 4*(ha + hb)) < 1e-9, 'Contact %d: wrong perimeter.', S.id(k));
+    t = S.thickness_m(k);
+    on = onContact(mid, S(k,:), R, 1e-6);
+    edges{k} = find(isBoundary & on);
+    if S.curved(k)                                         % inner + outer arc + 2 radial sides
+        perim = 2 * S.halfAngle_rad(k) * (R + (R + t)) + 2 * t;
+    else
+        perim = 2 * (t + S.sideXY_m(k));
+    end
+    assert(abs(sum(len(edges{k})) - perim) < 1e-9, 'Contact %d: wrong perimeter (%.6g vs %.6g m).', ...
+           S.id(k), sum(len(edges{k})), perim);
+end
+end
+
+function [mid, len] = edgeMidLength(dl)
+%EDGEMIDLENGTH Midpoint [m] (2 x nEdges) and length [m] of every edge of a decsg geometry:
+% straight segments (dl row 1 = 2) and circle arcs (row 1 = 1; arcs run counterclockwise from
+% the start point to the end point around the centre in rows 8-9, radius in row 10).
+nE = size(dl, 2);   mid = zeros(2, nE);   len = zeros(1, nE);
+for e = 1:nE
+    if dl(1,e) == 1
+        c = dl(8:9, e);   r = dl(10, e);
+        a0 = atan2(dl(4,e) - c(2), dl(2,e) - c(1));
+        a1 = atan2(dl(5,e) - c(2), dl(3,e) - c(1));
+        da = mod(a1 - a0, 2*pi);
+        mid(:, e) = c + r * [cos(a0 + da/2); sin(a0 + da/2)];
+        len(e) = r * da;
+    else
+        mid(:, e) = [(dl(2,e) + dl(3,e)) / 2; (dl(4,e) + dl(5,e)) / 2];
+        len(e) = hypot(dl(3,e) - dl(2,e), dl(5,e) - dl(4,e));
+    end
 end
 end
 
@@ -310,8 +415,9 @@ for i = 1:size(geo.fasc, 1)
     rO = geo.fasc(i,3) + geo.tPeri;
     plot(1e3*(geo.fasc(i,1) + rO*cos(th)), 1e3*(geo.fasc(i,2) + rO*sin(th)), 'k-', LineWidth=0.5);
 end
-for k = 1:size(geo.corners, 3)
-    plot(1e3*geo.corners([1:4 1],1,k), 1e3*geo.corners([1:4 1],2,k), 'r-', LineWidth=1.5);
+for k = 1:numel(geo.outlines)
+    o = geo.outlines{k}([1:end 1], :);
+    plot(1e3*o(:,1), 1e3*o(:,2), 'r-', LineWidth=1.5);
 end
 end
 

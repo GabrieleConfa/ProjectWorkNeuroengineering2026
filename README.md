@@ -12,6 +12,7 @@ Architecture: [docs/architecture.md](docs/architecture.md) ·
 Work plan: [docs/work_plan.md](docs/work_plan.md) ·
 Parameters: [docs/parameters.md](docs/parameters.md) ·
 Decisions: [docs/decisions.md](docs/decisions.md) ·
+3D model explained: [docs/model_3d.md](docs/model_3d.md) ·
 Meetings: [docs/meetings/](docs/meetings/) ·
 Paper notes: [docs/literature/](docs/literature/)
 
@@ -38,6 +39,7 @@ contract), and run `setup_paths; runtests('tests')`.
 | `data/patients` | virtual patients (seed + parameters) |
 | `results/` | generated outputs (not versioned) |
 | `report/` | final report / slides |
+| `viewer/` | interactive 3D viewer in the browser (`index.html`, three.js vendored in `viewer/vendor/`) |
 
 ## Running
 
@@ -143,7 +145,7 @@ ten-fascicle model.
 
 The quicklook collision check uses each fascicle's larger semi-axis as a conservative circular envelope. The displayed fascicle is oval when its axes differ. Exact oval contact mechanics remains part of the later calibrated model.
 
-## Local mesh and electrical verification on MATLAB R2024a
+## Local mesh and electrical verification
 
 ```matlab
 setup_paths
@@ -160,6 +162,16 @@ The pad boundary is represented by mesh nodes, and the present mesh is not
 fully convergence-validated. A second mesh with 188,827 tetrahedra changed
 the local two-terminal conductance by about 0.06%; this checks one quantity
 for one station only. All eight stations have been run separately with the
-same local setup. The full 3D pipeline on the colleague's `3d-model`
-branch requires MATLAB R2025a or later: its geometry uses `findCell`,
-`deleteCell`, and `union`, which are absent in the installed R2024a.
+same local setup. The full 3D pipeline uses the MATLAB R2025a geometry API.
+
+### Interactive 3D viewer
+
+After `main_pipeline_3d` has solved some contacts:
+
+```matlab
+setup_paths; export_viewer_data     % writes results/viewer/<patient>/ (geometry + one file per contact)
+```
+
+then open `viewer/index.html` in Chrome, Edge or Firefox (double-click, no server needed). Rotate the
+nerve with the mouse, press Space (or click a contact) to show its field, cut the nerve
+transversally or lengthwise. Keys and options: `docs/model_3d.md` §8.2.

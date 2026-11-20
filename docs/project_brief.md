@@ -50,5 +50,7 @@ The project is organised in consecutive phases.
 - Active-site thickness: 5 µm in `sites.mat` vs 50 µm in the tutor's slides (factor 10).
 - The shank body carrying the intraneural sites: width, thickness, material; should it be in the model?
 - Active faces of each site: both square faces or only one?
-- Does the shank pierce the fascicles it crosses (perineurium cut) or push them aside?
+- Does the shank pierce the fascicles it crosses (perineurium cut) or push them aside? (3D model:
+  "pierce" by default, D-09.)
+- Cuff wall: thickness and material (3D model: insulating, 0.5 mm assumed, D-05).
 - Deliverable format (written report, presentation, code) and deadline.

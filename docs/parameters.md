@@ -37,6 +37,25 @@ Notes
 
 All ± are SEM over blocks of a **single** nerve.
 
+## Upper-arm generator and 3D model (set in `config/pw6_3d_params.m`)
+
+| Quantity | Value | Source | Status |
+|---|---|---|---|
+| Nerve area (circle, R = 1.711 mm) | 9.20 mm² | Pusnik 2025 (PW6 group document) | chosen (D-09) |
+| Number of fascicles | 10 | Pusnik 2025 | chosen (D-09) |
+| Total fascicle (endoneurium) area | 5.01 mm² | Pusnik 2025 | chosen (D-09) |
+| Largest fascicle | 1.49 mm² | Pusnik 2025 / PW6 (Delgado-Martínez cluster C) | chosen (D-09) |
+| CV of fascicle diameter | 0.5 | Brill & Tyler 2017: 0.6 ± 0.3 mm, upper arm | chosen (D-09) |
+| Inner fascicles (not on the hull) | ≈ 0.58 (N − 6.08) = 2 ± 1 | Brill & Tyler 2017 | chosen (D-09) |
+| Gap between fascicles / to nerve surface | 25 µm / 40 µm | assumed (mesh) | to test |
+| Perineurium thickness → sheet resistance | 14 µm → ρ·t = 159 Ω·cm² (thin layer) | PW6 / Horn 2023; Zelechowski σ | chosen (D-06) |
+| Nerve / cuff length | 70 mm / 50 mm, cuff centred on the contacts | group | chosen (D-02) |
+| Cuff wall | insulating void, 0.5 mm thick | thickness assumed — ask tutor | open (D-05) |
+| Cuff-contact indentation | 10 µm (> 2.9 µm sagitta of a 200 µm face) | assumed | to test (D-07) |
+| Contact conductivity (numerical) / idle contacts | 1e3 S/m / 1e-7 S/m (insulating) | numerical stand-ins | to test (D-07) |
+| End planes z = ±35 mm | grounded | assumed | to compare with insulated (D-04) |
+| Mesh sizes (contacts / fascicles / nerve / outside fine zone / muscle) | 30 / 100 / 150 / 500 / 1200 µm | first guess | convergence study (D-08) |
+
 ## Electrode (phase 3)
 
 Provided layout: `data/electrode/sites.mat`, described in `data/electrode/README.md`.
