@@ -95,3 +95,10 @@ placement by micro-CT in a rodent sciatic nerve. These studies use different
 devices and do not supply a penetration frequency for this strip in the human
 median nerve. The two modes represent geometric scenarios while insertion
 mechanics and frequency remain uncalibrated.
+
+The experimental basis and limits of the insertion scenarios are recorded in
+[`docs/insertion_evidence.md`](docs/insertion_evidence.md). A first local
+three-dimensional tetrahedral mesh of one flattened cuff station can be made
+with `buildQuicklookMesh(p, cuffSites)`. It is a short uniform slab through a
+contact. The full axial nerve with its cuff transitions and transverse strips
+still needs a conforming volume mesh before a 3D electrical solve.
