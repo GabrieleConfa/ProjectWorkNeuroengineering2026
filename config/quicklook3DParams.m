@@ -23,7 +23,10 @@ p.electrode.cuffExtraIndentation_m = 0; % Add no extra compression beyond the mi
 p.electrode.cuffTransition_m = 0.40e-3; % Blend along the nerve beyond each cuff pad edge.
 p.electrode.cuffLateralTransition_m = 0.12e-3; % Blend around the 0.20 mm pad width in the cross-section.
 p.electrode.maxDeflection_m = 0.8e-3; % Maximum lateral shift explored by the geometric search.
-%% 3. Provisional strip mechanics for a puncture feasibility screen
+%% 3. Local mesh controls
+p.meshPreview.hMax_m = 0.18e-3; % Set the first tetrahedral target size for a single contact slab.
+p.meshPreview.hMin_m = 0.025e-3; % Resolve the local contact without implying a convergence study.
+%% 4. Provisional strip mechanics for a puncture feasibility screen
 p.electrode.stripWidth_m = 0.12e-3; % Assume a flexible strip narrower than its 0.20 mm active pads.
 p.electrode.stripThickness_m = 10e-6; % Assume a thin flexible substrate pending the device specification.
 p.electrode.stripYoungModulus_Pa = 2.5e9; % Use published photosensitive-polyimide modulus as a material proxy.

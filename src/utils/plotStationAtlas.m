@@ -24,8 +24,9 @@ for k = 1:numel(model.strips) % Walk through every axial section in the tutor's 
         fill(ax,mm*xyInner(:,1),mm*xyInner(:,2),[0.96 0.75 0.68],EdgeColor=[0.53 0.29 0.28]); % Show endoneurium within that band.
         text(ax,mm*fasc(j,1),mm*fasc(j,2),string(j),HorizontalAlignment="center",FontSize=8); % Identify each fascicle by its current row number.
     end % Finish the ten provisional fascicles.
-    path = mm*strip.path_m(:,1:2); % Convert the routed strip centreline to millimetres.
-    plot(ax,path(:,1),path(:,2),Color=colors(abs(strip.section),:),LineWidth=2); % Show the route that avoids fascicles.
+    [segments_m,~] = visibleInsertionSegments(strip); % Hide the unsupported through-nerve carrier.
+    path = mm*segments_m(:,1:2); % Convert the two partial candidate routes to millimetres.
+    plot(ax,path(:,1),path(:,2),Color=colors(abs(strip.section),:),LineWidth=2); % Show only separate insertion segments.
     for j = 1:size(strip.padFaces_m,3) % Show all four internal active faces at this level.
         face = mm*strip.padFaces_m(:,:,j); % Read the finite pad vertices.
         plot(ax,face(1:2,1),face(1:2,2),Color=[0.06 0.14 0.20],LineWidth=5); % Project the active pad width.
@@ -60,10 +61,12 @@ for j = 1:size(fasc,1) % Draw the separate tissue sheaths for every fascicle.
     fill(ax,mm*inner(:,1),mm*inner(:,2),[0.96 0.75 0.68],EdgeColor=[0.53 0.29 0.28]); % Display the endoneurium.
     text(ax,mm*fasc(j,1),mm*fasc(j,2),"F"+j,HorizontalAlignment="center"); % Label fascicles without assumed functional assignments.
 end % Finish anatomical layers.
-path = mm*strip.path_m(:,1:2); % Read the accepted route in millimetres.
-routedLine = plot(ax,path(:,1),path(:,2),Color=[0.05 0.40 0.62],LineWidth=3,DisplayName="Routed strip"); % Trace the route outside the perineurium.
-straightLine = plot(ax,[path(1,1),path(end,1)],[path(1,2),path(end,2)],'--', ...
-    Color=[0.78 0.19 0.17],LineWidth=1.8,DisplayName="Straight reference"); % Compare with the nominal straight route.
+[segments_m,straight_m] = visibleInsertionSegments(strip); % Keep the middle unconnected until device topology is confirmed.
+path = mm*segments_m(:,1:2); % Read only the visible candidate segments in millimetres.
+straight = mm*straight_m(:,1:2); % Read their straight reference without a through-nerve line.
+routedLine = plot(ax,path(:,1),path(:,2),Color=[0.05 0.40 0.62],LineWidth=3,DisplayName="Candidate detour"); % Show the exploratory separated routes.
+straightLine = plot(ax,straight(:,1),straight(:,2),'--', ...
+    Color=[0.78 0.19 0.17],LineWidth=1.8,DisplayName="Straight reference"); % Compare only the partial insertion lengths.
 for j = 1:size(model.nerve.cuffFaces_m,3) % Show the external contacts at this selected section.
     cuffFace = mm*model.nerve.cuffFaces_m(:,:,j); % Convert this cuff face to millimetres.
     if abs(mean(cuffFace(:,3))-mm*strip.path_m(1,3))<1e-5 % Select this section's opposing cuff pair.
@@ -78,8 +81,8 @@ axis(ax,'equal'); % Keep the comparison anatomically proportionate.
 lim = mm*max(p.geometry.nerveSemiAxes_m)*1.12; % Frame the full nerve section.
 xlim(ax,[-lim lim]); ylim(ax,[-lim lim]); % Use equal transverse viewing limits.
 xlabel(ax,'x [mm]'); ylabel(ax,'y [mm]'); % State the position units.
-title(ax,sprintf('Section %+d | geometrical detour %.3f mm',strip.section,mm*abs(strip.offset_m))); % Report the planned displacement without claiming tissue mechanics.
-legend(ax,[routedLine,straightLine],{'Routed strip','Straight reference'},'Location','southoutside'); % Explain only the two compared routes.
+title(ax,sprintf('Section %+d | candidate detour %.3f mm | device topology to confirm',strip.section,mm*abs(strip.offset_m))); % Mark the unconfirmed substrate path.
+legend(ax,[routedLine,straightLine],{'Candidate partial paths','Straight partial paths'},'Location','southoutside'); % Explain the two schematic comparisons.
 end % Return both anatomy figures.
 function xy = ellipsePoints(f,peri_m,theta) % Sample one rotated fascicle and optional sheath.
 a = f(3)+peri_m; b = f(4)+peri_m; % Read both semi-axes with the outer perineurial thickness.

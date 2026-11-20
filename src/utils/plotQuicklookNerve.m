@@ -36,10 +36,11 @@ end % Finish drawing the anatomy.
 for k = 1:numel(model.strips) % Draw each station at its measured z coordinate.
     strip = model.strips(k); % Read the route and finite pad geometry.
     c = colors(abs(strip.section),:); % Match mirrored sections by colour.
-    path = mm*strip.path_m; % Convert the strip centreline for plotting.
-    plot3(space,path(:,1),path(:,2),path(:,3),Color=c,LineWidth=1.4); % Show the strip path through the nerve.
+    [candidate_m,~] = visibleInsertionSegments(strip); % Remove the unsupported connection through the nerve centre.
+    path = mm*candidate_m; % Convert the separated candidate insertions to millimetres.
+    plot3(space,path(:,1),path(:,2),path(:,3),Color=c,LineWidth=1.4); % Show only partial routes to the innermost pads.
     if strip.section < 0 % Draw each coincident mirrored pair only once in the end-on projection.
-        plot(front,path(:,1),path(:,2),Color=c,LineWidth=1.2); % Overlay that pair's transverse route.
+        plot(front,path(:,1),path(:,2),Color=c,LineWidth=1.2); % Overlay the separated partial routes.
     end % Finish drawing the projection of the strip.
     for j = 1:size(strip.padFaces_m,3) % Draw each internal active site separately.
         drawPad(space, front, mm*strip.padFaces_m(:,:,j), c, strip.section < 0); % Show the ideal contact patch and its projected interval.
@@ -63,7 +64,7 @@ xlim(front, mm*max(p.geometry.nerveSemiAxes_m)*[-1.1 1.1]); % Frame the transver
 ylim(front, mm*max(p.geometry.nerveSemiAxes_m)*[-1.1 1.1]); % Use the same view extent in both directions.
 xlabel(front,'x [mm]'); % Label the frontal x coordinate.
 ylabel(front,'y [mm]'); % Label the frontal y coordinate.
-title(front, ["End-on projection | 4 mirrored pairs", "Thin lines: strips  •  Thick lines: active faces"]); % Explain the overlaid station pairs and contacts.
+title(front, ["End-on projection | 4 mirrored pairs", "Thin lines: candidate partial paths  •  Thick lines: measured active faces"]); % Mark the uncertain insertion topology.
 title(layout,"Median nerve | " + model.mode); % Label the interaction scenario.
 end % Return the interactive figure.
 

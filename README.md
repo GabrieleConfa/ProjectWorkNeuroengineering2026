@@ -84,6 +84,13 @@ represent finite active faces (0.2 × 0.2 mm in the supplied file).
   case retains the straight path and returns the overlapping fascicle IDs in
   `modelStraight.strips(k).envelopeFascicles`. Overlap is geometric; this mode
   does not model rupture or estimate penetration probability.
+- The tutor's file locates four intraneural active faces on both sides of the
+  axis, but does not define the carrier body or insertion end points. The
+  preview draws only separate partial candidate paths from the outer nerve to
+  the innermost faces. These lines are visual hypotheses, not a confirmed
+  connected shank. The current route search still checks a full transverse
+  curve as a conservative geometric screen; it must be replaced when the tutor
+  confirms the actual number and length of inserted shanks.
 - **Visualization** is in `src/utils/plotQuicklookNerve.m`,
   `src/utils/plotStationAtlas.m` and `src/utils/plotCuffApposition.m`. The 3D
   nerve, all eight current transverse stations, the strip route, and a
@@ -107,7 +114,7 @@ The experimental basis and limits of the insertion scenarios are recorded in
 three-dimensional tetrahedral mesh of one flattened cuff station can be made
 with `buildQuicklookMesh(p, cuffSites)`. It is a short uniform slab through a
 contact. The full axial nerve with its cuff transitions and transverse strips
-still needs a conforming volume mesh before a 3D electrical solve.
+still needs a conforming volume mesh before a full-length 3D electrical solve.
 
 The insertion screen now reports a straight-path encounter angle and compares
 an ideal weak-axis buckling load with a probe-specific perineurium insertion
@@ -122,10 +129,37 @@ nerve's two transverse semi-axes, rotation, and one `[x y semi-axis-x semi-axis-
 row per fascicle, all in SI units. The 3D view accepts a different fascicle
 count and an oval nerve outline. `validateQuicklookAnatomy` rejects invalid
 sizes, clear boundary violations and overlapping fascicles. The local slab
-mesh and the historical 2D FEM still use their earlier circular sections.
+mesh uses the same locally indented contour and accepts editable oval nerve
+and fascicle axes. It represents only the 0.20 mm axial contact slab, so it
+does not contain the axial contact shoulders or the full 6 cm nerve. The
+historical 2D FEM still uses its earlier circular section.
 The original 2D figures are preserved under `results/2d_sites` and describe
 the tutor P00 section with seven fascicles. The new 3D figures under
 `results/3d_preview` describe the current ten-fascicle quicklook anatomy.
-Use `run_complete_preview` to generate both sets in one MATLAB run.
+Use `run_complete_preview` to generate both sets in one MATLAB run. The old 2D
+solver reports distorted elements and places its cuff sites in muscle in its
+own section; its field plots must not be interpreted as results for the new
+ten-fascicle model.
 
 The quicklook collision check uses each fascicle's larger semi-axis as a conservative circular envelope. The displayed fascicle is oval when its axes differ. Exact oval contact mechanics remains part of the later calibrated model.
+
+## Local mesh and electrical verification on MATLAB R2024a
+
+```matlab
+setup_paths
+[meshPreview, field] = run_local_mesh_stimulation();
+```
+
+This produces an inspectable MATLAB mesh figure, a cross-sectional potential
+map, and the numerical field under `results/local_slab/`. The source is a
+finite cuff pad held equipotential; the opposing pad is the return. The field
+is scaled to 1 µA and uses the project's anisotropic endoneurium, perineurium,
+and epineurium conductivities. It is a **short-slab solver check**, not a
+prediction of stimulation of the full nerve or of action-potential propagation.
+The pad boundary is represented by mesh nodes, and the present mesh is not
+fully convergence-validated. A second mesh with 188,827 tetrahedra changed
+the local two-terminal conductance by about 0.06%; this checks one quantity
+for one station only. All eight stations have been run separately with the
+same local setup. The full 3D pipeline on the colleague's `3d-model`
+branch requires MATLAB R2025a or later: its geometry uses `findCell`,
+`deleteCell`, and `union`, which are absent in the installed R2024a.
