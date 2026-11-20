@@ -48,3 +48,50 @@ setup_paths            % adds src/ and config/ to the path
 ```
 
 Requires MATLAB R2025a with the **Partial Differential Equation Toolbox**.
+
+## 3D geometry preview
+
+From the repository root in MATLAB:
+
+```matlab
+setup_paths
+[fig, model] = run_3d_quicklook("deflect");
+[figStraight, modelStraight] = run_3d_quicklook("penetrate");
+```
+
+Rotate or zoom the 3D axes with the figure toolbar. The end-on view overlays the
+four mirrored station pairs from `sites.mat`. There are eight axial stations,
+with four internal pads and two opposing cuff pads per station. All patches
+represent finite active faces (0.2 × 0.2 mm in the supplied file).
+
+- **Inputs** are in `config/quicklook3DParams.m`. The 60 mm length, circular outer
+  section and ten straight fascicles are provisional. The illustrative fascicle
+  layout was chosen to exercise both interaction scenarios.
+- **Nerve and cuff apposition** are in `src/geometry/buildQuicklookNerve.m`. The
+  cuff faces are rigid planes. The sampled nerve surface meets each plane over
+  the full pad footprint and returns smoothly to the circle along the axis.
+  The flattening depth is prescribed, with no tissue mechanics or conservation
+  of cross-sectional area.
+- **Strip and pads** are in `src/electrode/planQuicklookStrip.m`. The
+  `deflect` case searches a family of smooth paths between fixed entry and exit
+  points, keeping the fascicles fixed. It checks all polyline segments and pad
+  projections against the perineurium with a provisional clearance envelope.
+  A station with no path in the search family raises an error. The `penetrate`
+  case retains the straight path and returns the overlapping fascicle IDs in
+  `modelStraight.strips(k).envelopeFascicles`. Overlap is geometric; this mode
+  does not model rupture or estimate penetration probability.
+- **Visualization** is in `src/utils/plotQuicklookNerve.m`. The sampled nerve
+  shell, strip centrelines and active patches can be inspected separately from
+  the existing 2D FEM. Mesh generation, field solving and mechanical
+  displacement are outside this preview.
+
+The [FINE experiments](https://pubmed.ncbi.nlm.nih.gov/12611367/) provide an
+example of a cuff reshaping a nerve. The
+[SPINE experiments](https://pubmed.ncbi.nlm.nih.gov/9086385/) report that blunt
+elements can separate epineurial tissue while preserving fascicles. A
+[penetrating cuff experiment](https://doi.org/10.1186/s42234-025-00193-6)
+used guided insertion between fascicles and confirmed interfascicular
+placement by micro-CT in a rodent sciatic nerve. These studies use different
+devices and do not supply a penetration frequency for this strip in the human
+median nerve. The two modes represent geometric scenarios while insertion
+mechanics and frequency remain uncalibrated.
