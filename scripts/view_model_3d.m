@@ -25,6 +25,7 @@ addpath(root);  setup_paths;
 
 %% ===== OPTIONS ========================================================================
 patientId     = "UA01";
+if getenv("NERVE_CASE")=="personal", patientId="Cuff60"; end % Load the personal result when requested.
 zRange_mm     = [-13 -7.5];     % slab of nerve to draw [mm]; whole model: [-35 35]
 zScale        = 1;              % 1 = true proportions; e.g. 0.2 compresses z five times
 showNerve     = true;
@@ -75,8 +76,9 @@ if showFascicles
         sel = elemTissue == 1 & elemFasc == i;
         drawRegion(sel, cols(i,:), 0.35);
         th = linspace(0, 2*pi, 120);                    % outline of the fascicle at both slab ends
+        [xx,yy]=fascicleOutline(F,i,th); % Draw the actual fascicle outline from the mesh inputs.
         for zEnd = zRange_mm
-            plot3(ax, F.x_m(i)/mm + F.rEndo_m(i)/mm*cos(th), F.y_m(i)/mm + F.rEndo_m(i)/mm*sin(th), ...
+            plot3(ax, xx/mm, yy/mm, ...
                   zEnd*ones(size(th)), '-', Color=cols(i,:)*0.7, LineWidth=1);
         end
         text(ax, F.x_m(i)/mm, F.y_m(i)/mm, zRange_mm(2) + 0.3, "F" + i, FontWeight="bold", ...
@@ -108,6 +110,14 @@ if showCuff                                             % analytic tube: the wal
         end
     end
 end
+if isfield(p,'personalGeometry') % Overlay the one-sided carrier in the actual solved mesh.
+    q=p.personalGeometry; raw=loadActiveSites(q.electrode.sitesFile,R); % Read nominal device coordinates.
+    for sec=unique(raw.section)' % Add only stations intersecting this axial slab.
+        r=raw(raw.section==sec,:); if r.z_m(1)<zLim(1) || r.z_m(1)>zLim(2), continue; end % Skip other stations.
+        strip=planQuicklookStrip(q,r(r.type=="intraneural",:),r(r.type=="cuff",:),"deflect"); % Recover the verified route.
+        line=strip.path_m/mm; plot3(ax,line(:,1),line(:,2),line(:,3),'Color',[0.13 0.38 0.92],'LineWidth',2); % Draw the physical trace.
+    end % Finish visible lead overlays.
+end % Keep reference figures compatible.
 finishAxes(ax, zScale);
 title(ax, sprintf('Patient %s: z = %g ... %g mm (solved contacts red, others gold; cuff grey)', ...
       patientId, zRange_mm), FontSize=10);
@@ -125,12 +135,22 @@ if ~isempty(potentialSite)
     n = potentialRes;
     % cross-section through the contact
     [xg, yg] = meshgrid(linspace(-1.25, 1.25, n) * R);
-    Vx = reshape(interpolateP1(tr, u, [xg(:), yg(:), c(3)*ones(n^2, 1)]), n, n);
+    planeAxis=xg(1,:); mask=false(n,n,2); mask(:,:,1)=true; % Select the plotted transverse plane.
+    [ix,b]=locateRegularGrid(X,T,{planeAxis,planeAxis,c(3)+[0 1e-4]},mask); % Locate points in the solved mesh.
+    ok=isfinite(ix); Vx=nan(n); Vx(ok)=sum(b(ok,:).*u(T(:,ix(ok))'),2); Vx=Vx'; % Convert P1 values to meshgrid order.
     % longitudinal plane through the axis and the contact
     [sg, zg] = meshgrid(linspace(-1.25, 1.25, n) * R, linspace(zRange_mm(1), zRange_mm(2), 2*n) * mm);
-    Vl = reshape(interpolateP1(tr, u, [sg(:)*er(1), sg(:)*er(2), zg(:)]), size(sg));
+    basis=[er;-er(2),er(1),0;0,0,1]; mask=false(n,2,2*n); mask(:,1,:)=true; % Rotate into the longitudinal plane frame.
+    [ix,b]=locateRegularGrid(basis*X,T,{sg(1,:),[0 1e-4],zg(:,1)'},mask); % Sample the longitudinal plane in that frame.
+    ok=isfinite(ix); Vl=nan(n,2*n); Vl(ok)=sum(b(ok,:).*u(T(:,ix(ok))'),2); Vl=Vl'; % Restore the displayed orientation.
     if ~planesOutside                                   % nerve only
-        Vx(hypot(xg, yg) > R) = NaN;   Vl(abs(sg) > R) = NaN;
+        rim = R*ones(size(xg)); axialRim = R*ones(size(sg)); % Use the circular reference outline by default.
+        if isfield(p,'personalGeometry') % Use the rotated personal shape when available.
+            ang=atan2(yg(:),xg(:)); % Find transverse ray directions.
+            rim=reshape(nerveBoundaryRadius(p.personalGeometry,[cos(ang),sin(ang)]),size(xg)); % Mask the true native cross-section.
+            axialRim(:)=nerveBoundaryRadius(p.personalGeometry,er(1:2)); % Set the extent in the longitudinal plane.
+        end % Finish the anatomical mask.
+        Vx(hypot(xg,yg)>rim)=NaN; Vl(abs(sg)>axialRim)=NaN; % Exclude muscle from the nerve-only display.
     end
     lim = prctile([Vx(:); Vl(:)], [1 99.5]) / 1e-3;
 
@@ -140,7 +160,8 @@ if ~isempty(potentialSite)
     surf(ax2, sg*er(1)/mm, sg*er(2)/mm, zg/mm, Vl/1e-3, EdgeColor="none", FaceColor="interp");
     for i = 1:nF                                        % fascicle outlines on the cross-section
         th = linspace(0, 2*pi, 120);
-        plot3(ax2, (F.x_m(i) + F.rEndo_m(i)*cos(th))/mm, (F.y_m(i) + F.rEndo_m(i)*sin(th))/mm, ...
+        [xx,yy]=fascicleOutline(F,i,th); % Match the anatomical section in the potential map.
+        plot3(ax2, xx/mm, yy/mm, ...
               c(3)/mm*ones(size(th)), 'k-', LineWidth=0.6);
     end
     sel = elemSite == potentialSite;

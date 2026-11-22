@@ -35,20 +35,19 @@ end % Finish drawing the anatomy.
 %% 3. Draw the pad faces and transverse stations
 for k = 1:numel(model.strips) % Draw each station at its measured z coordinate.
     strip = model.strips(k); % Read the route and finite pad geometry.
-    c = colors(abs(strip.section),:); % Match mirrored sections by colour.
+    c = [0.13 0.38 0.92]; % Match mirrored sections by colour.
     [candidate_m,~] = visibleInsertionSegments(strip); % Remove the unsupported connection through the nerve centre.
-    path = mm*candidate_m; % Convert the separated candidate insertions to millimetres.
-    plot3(space,path(:,1),path(:,2),path(:,3),Color=c,LineWidth=1.4); % Show only partial routes to the innermost pads.
-    if strip.section < 0 % Draw each coincident mirrored pair only once in the end-on projection.
-        plot(front,path(:,1),path(:,2),Color=c,LineWidth=1.2); % Overlay the separated partial routes.
-    end % Finish drawing the projection of the strip.
+    path = mm*candidate_m; % Convert the continuous lead to millimetres.
+    plot3(space,path(:,1),path(:,2),path(:,3),Color=c,LineWidth=1.4); % Show only the physical lead to its tip.
+    plot(front,path(:,1),path(:,2),Color=c,LineWidth=1.2); % Overlay the single-entry paths.
+    plot(front,path(1,1),path(1,2),'ko',MarkerFaceColor='white',MarkerSize=5); % Mark the insertion end on the shared projection.
     for j = 1:size(strip.padFaces_m,3) % Draw each internal active site separately.
-        drawPad(space, front, mm*strip.padFaces_m(:,:,j), c, strip.section < 0); % Show the ideal contact patch and its projected interval.
+        drawPad(space, front, mm*strip.padFaces_m(:,:,j), [0.57 0.14 0.83], true); % Show the ideal contact patch and its projected interval.
     end % Finish plotting this station's internal pads.
 end % Finish plotting the internal part of the device.
 for k = 1:size(nerve.cuffFaces_m,3) % Draw the outer contacts on the flattened nerve.
     face = mm*nerve.cuffFaces_m(:,:,k); % Convert this finite active face to millimetres.
-    drawPad(space, front, face, [0.14 0.22 0.26], mean(face(:,3)) < 0); % Draw the cuff face in the nerve's flat plane.
+    drawPad(space, front, face, [0.57 0.14 0.83], mean(face(:,3)) < 0); % Draw the cuff face in the nerve's flat plane.
 end % Finish plotting the external contacts.
 
 %% 4. Set equal transverse scales and label the two views
@@ -64,7 +63,7 @@ xlim(front, mm*max(p.geometry.nerveSemiAxes_m)*[-1.1 1.1]); % Frame the transver
 ylim(front, mm*max(p.geometry.nerveSemiAxes_m)*[-1.1 1.1]); % Use the same view extent in both directions.
 xlabel(front,'x [mm]'); % Label the frontal x coordinate.
 ylabel(front,'y [mm]'); % Label the frontal y coordinate.
-title(front, ["End-on projection | 4 mirrored pairs", "Thin lines: candidate partial paths  •  Thick lines: measured active faces"]); % Mark the uncertain insertion topology.
+title(front, ["End-on projection | 8 independent trajectories", "Blue: single-entry leads  •  Purple: active pads  •  Circle: entry"]); % Mark the uncertain insertion topology.
 title(layout,"Median nerve | " + model.mode); % Label the interaction scenario.
 end % Return the interactive figure.
 

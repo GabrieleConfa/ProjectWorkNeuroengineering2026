@@ -67,7 +67,7 @@
 %   setup_paths; bipolarPairs = [2 1]; run_2d_sites_quicklook
 % Outputs: figures and a .mat file in results/2d_sites/ (file names start with the set name).
 
-clearvars -except paramSet sectionId siteModel metalName bipolarPairs; close all; clc;
+clearvars -except personalAnatomy personalStation paramSet sectionId siteModel metalName bipolarPairs; close all; clc;
 mm = 1e-3;  um = 1e-6;
 
 
@@ -156,6 +156,15 @@ else                                                      % "centred": centre on
 end
 S.centre_m(isCuff, 1:2) = S.r_m(isCuff) .* [cosd(S.theta_deg(isCuff)), sind(S.theta_deg(isCuff))];
 
+pg=[]; % Keep the original reference geometry when no personal station is requested.
+if exist('personalStation','var') % Replace all physical coordinates together for the personal export.
+    if ~exist('personalAnatomy','var'), personalAnatomy=quicklook3DParams(); end % Read current geometry on a standalone run.
+    pg=personalStation2D(personalStation,personalAnatomy); sectionId=personalStation; S=pg.sites; isCuff=S.type=="cuff"; % Use the actual finite contact boxes.
+    fasc=pg.f(:,1:3); nFasc=size(fasc,1); tPeri=pg.q.geometry.tPeri_m; % Read the ten fascicles and sheath thickness.
+    R=max(pg.q.geometry.nerveSemiAxes_m); Rmed=params.domain.outerRadiusFactor*R; % Scale the same grounded surrounding medium.
+    outDir=fullfile(fileparts(outDir),'current2d'); if ~isfolder(outDir), mkdir(outDir); end % Preserve the existing reference files.
+    params.personalGeometry=pg.q; % Save the exact anatomical configuration for reproducibility.
+end % Finish applying the personal station.
 fprintf('Section %+d (z = %.1f mm): %d active sites\n', sectionId, 1e3*S.z_m(1), nS);
 disp(S(:, {'id', 'type', 'r_m', 'theta_deg', 'phi_deg', 'thickness_m', 'sideXY_m'}));
 
@@ -173,6 +182,9 @@ end
 % Needed to know if an AS crosses a perineurium (D-g).
 fprintf('Tissue along each AS (fraction of its length):\n');
 for k = 1:nS
+    if ~isempty(pg) && isCuff(k) % Describe the active face separately from the external metal centre.
+        fprintf('   AS %2d (cuff): external pad facing the epineurium\n',S.id(k)); continue % Skip the metal mid-line diagnostic for exterior pads.
+    end
     s  = linspace(-0.5, 0.5, 201)' * S.sideXY_m(k);
     p  = S.centre_m(k, 1:2) + s * S.w(k, 1:2);
     [tis, fid] = tissueAt(p, fasc, tPeri, R);
@@ -212,7 +224,7 @@ if siteModel == "metal"
 else
     sf = char("(" + strjoin(names(1:nCirc), "+") + ")-(" + strjoin(names(nCirc+1:end), "+") + ")");
 end
-[dl, bt] = decsg(gd, sf, ns);
+if isempty(pg), [dl,bt]=decsg(gd,sf,ns); else, [dl,bt]=personalStationCSG(pg,Rmed,siteModel~="metal"); end % Reuse the physical surface and conics in personal runs.
 
 g = fegeometry(dl);
 nFaces = g.NumFaces;
@@ -438,10 +450,11 @@ xyNodes_mm = 1e3 * msh.Nodes;
 tri = msh.Elements(1:3, :)';                              % corner nodes only, for patch plots
 
 % 7a. Cross-section with the AS
-figure(Color="w", Position=[40 80 1300 520], Name="Cross-section with AS");
+figure(Theme="light",Color="w", Position=[40 80 1300 520], Name="Cross-section with AS");
 tiledlayout(1, 2, TileSpacing="compact");
 nexttile
 fill(1e3*R*1.25*cos(th), 1e3*R*1.25*sin(th), tissueColor(4,:), EdgeColor="none"); hold on
+if isempty(pg) % Draw the original P00 anatomy.
 fill(1e3*R*cos(th), 1e3*R*sin(th), tissueColor(3,:), EdgeColor=[0.6 0.45 0.2], LineWidth=1.5);
 for i = 1:nFasc
     rO = fasc(i,3) + tPeri;
@@ -449,6 +462,14 @@ for i = 1:nFasc
     fill(1e3*(fasc(i,1) + fasc(i,3)*cos(th)), 1e3*(fasc(i,2) + fasc(i,3)*sin(th)), tissueColor(1,:), EdgeColor="none");
     text(1e3*fasc(i,1), 1e3*fasc(i,2), "F" + i, HorizontalAlignment="center", FontWeight="bold");
 end
+else % Draw the actual materials of the personal section from the solved triangles.
+    elem=zeros(size(tri,1),1); % Fill each triangle with its assigned tissue colour.
+    for face=1:nFaces, elem(findElements(msh,"region","Face",face))=faceTissue(face); end % Recover tissue labels from the FEM.
+    colours=[tissueColor;0.57 0.14 0.83]; % Include metal for the optional conducting electrode model.
+    patch(Faces=tri,Vertices=xyNodes_mm',FaceVertexCData=colours(elem,:),FaceColor="flat",EdgeColor="none"); % Use the same tissue boundaries as the solve.
+    drawPersonalStation(pg); % Show the lead route and outer footprints.
+    for i=1:nFasc, text(1e3*fasc(i,1),1e3*fasc(i,2),"F"+i,HorizontalAlignment="center"); end % Identify fascicles with the shared numbering.
+end % Finish the selected tissue layout.
 for k = 1:nS
     plot(1e3*siteCorners([1:4 1],1,k), 1e3*siteCorners([1:4 1],2,k), 'r-', LineWidth=3);
     lp = 1e3 * (S.centre_m(k,1:2) + 0.12*mm * S.n(k,1:2) .* (1 - 2*isCuff(k)));
@@ -461,7 +482,7 @@ title(sprintf('Section %+d: AS (red) on the cross-section', sectionId));
 nexttile                                                  % mesh around the first inner AS
 kZoom = find(~isCuff & S.r_m < 0.5*mm, 1);  if isempty(kZoom), kZoom = 1; end
 patch(Faces=tri, Vertices=xyNodes_mm', FaceColor="w", EdgeColor=[0.3 0.3 0.3], LineWidth=0.2);
-hold on; drawOutlines(R, fasc, tPeri, siteCorners);
+hold on; drawOutlines(R, fasc, tPeri, siteCorners,pg);
 cz = 1e3 * S.centre_m(kZoom, 1:2);
 axis equal; box on; xlim(cz(1) + 0.18*[-1 1]); ylim(cz(2) + 0.18*[-1 1]);
 xlabel('x [mm]'); ylabel('y [mm]');
@@ -472,7 +493,7 @@ fileTag  = sprintf('%s_section%+d_%s', paramSet, sectionId, strrep(modelTag, " "
 exportgraphics(gcf, fullfile(outDir, fileTag + "_geometry.png"));
 
 geo = struct('msh', msh, 'tri', tri, 'xy_mm', xyNodes_mm, 'R', R, 'fasc', fasc, ...
-             'tPeri', tPeri, 'siteCorners', siteCorners);
+             'tPeri', tPeri, 'siteCorners', siteCorners,'pg',pg);
 
 % 7b. Monopolar: potential (top row = V, the two figures split the 6 AS) and |E|
 plotMaps(geo, V, Emag(:, 1:nS), siteLabel, sprintf('Monopolar (%s), %g A/m', modelTag, Iline_Apm), ...
@@ -484,7 +505,7 @@ plotMaps(geo, Vb, Emag(:, nS+1:end), bipLabel, sprintf('Bipolar (%s), %g A/m', m
 
 % 7d. Which fascicle does each configuration reach? Mean |E| in each endoneurium,
 %     normalised by the largest value of that configuration
-figure(Color="w", Position=[100 100 900 520], Name="Field per fascicle");
+figure(Theme="light",Color="w", Position=[100 100 900 520], Name="Field per fascicle");
 heatmap(cellstr(fascLabel), cellstr(cfgLabel), round(meanEendo ./ max(meanEendo, [], 2), 2), ...
         Colormap=parula, ColorLimits=[0 1]);
 title(sprintf('Section %+d (%s): mean |E| in each endoneurium / max over fascicles', ...
@@ -525,7 +546,7 @@ end
 function plotMaps(geo, Vdata, Edata, labels, figTitle, fileName)
 %PLOTMAPS One column per configuration: V (top row) and log10 |E| (bottom row), nerve zoom.
 nC = size(Vdata, 2);
-figure(Color="w", Position=[60 40 min(1800, 330*nC + 100) 760], Name=figTitle);
+figure(Theme="light",Color="w", Position=[60 40 min(1800, 330*nC + 100) 760], Name=figTitle);
 tl = tiledlayout(2, nC, TileSpacing="compact");
 title(tl, figTitle, FontWeight="bold");
 inNerve = hypot(geo.msh.Nodes(1,:), geo.msh.Nodes(2,:)) <= 1.1*geo.R;
@@ -541,7 +562,7 @@ for q = 1:nC
         end
         patch(Faces=geo.tri, Vertices=geo.xy_mm', FaceVertexCData=data, FaceColor="interp", ...
               EdgeColor="none");
-        hold on; drawOutlines(geo.R, geo.fasc, geo.tPeri, geo.siteCorners);
+        hold on; drawOutlines(geo.R, geo.fasc, geo.tPeri, geo.siteCorners,geo.pg);
         clim(lim);  colormap(gca, cmap);  cb = colorbar;  cb.Label.String = cLab;
         axis equal; box on; xlim(1.1e3*geo.R*[-1 1]); ylim(1.1e3*geo.R*[-1 1]);
         title(tTxt, FontSize=9);
@@ -550,14 +571,16 @@ end
 exportgraphics(gcf, fileName);
 end
 
-function drawOutlines(R, fasc, tPeri, siteCorners)
+function drawOutlines(R, fasc, tPeri, siteCorners,pg)
 %DRAWOUTLINES Nerve and perineurium outlines (black) and AS rectangles (red), in mm.
+if ~isempty(pg), drawPersonalStation(pg); else % Use current geometry on personal maps.
 th = linspace(0, 2*pi, 200);
 plot(1e3*R*cos(th), 1e3*R*sin(th), 'k-', LineWidth=0.8);
 for i = 1:size(fasc, 1)
     rO = fasc(i,3) + tPeri;
     plot(1e3*(fasc(i,1) + rO*cos(th)), 1e3*(fasc(i,2) + rO*sin(th)), 'k-', LineWidth=0.5);
 end
+end % Complete the anatomical overlay.
 for k = 1:size(siteCorners, 3)
     plot(1e3*siteCorners([1:4 1],1,k), 1e3*siteCorners([1:4 1],2,k), 'r-', LineWidth=2.5);
 end

@@ -51,11 +51,9 @@ result.scope = "local slab only"; % Prevent interpretation as the full-length st
 end % Finish the local electrical verification.
 
 function nodes = padNodes(X,p,site) % Identify boundary mesh nodes under one rigid contact face.
-n = [cosd(site.theta_deg),sind(site.theta_deg)]; % Read the outward radial direction of this cuff contact.
-t = [-n(2),n(1)]; % Read the transverse direction across the pad.
-plane = cuffContactPlane(p,site); % Compute the same contact plane used to build the mesh.
+[plane,~,~,~,frame]=cuffContactPlane(p,site); n=frame.n; t=frame.t; % Compute the same contact plane used to build the mesh.
 normal_m = n*X(1:2,:); % Project every mesh node onto the pad normal.
-lateral_m = t*X(1:2,:); % Measure node position across the contact width.
+lateral_m = t*X(1:2,:)-frame.offset; % Measure node position across the contact width.
 tol_m = max(1e-6,p.meshPreview.hMin_m/20); % Allow the polygon approximation of a curved surface.
 atPlane = abs(normal_m-plane)<tol_m; % Keep only nodes lying on the flat contact surface.
 inWidth = abs(lateral_m)<=site.sideXY_m/2+tol_m; % Enforce the measured finite transverse width.

@@ -27,6 +27,17 @@ nN = size(nodes_m, 2);   nE = size(tets, 2);
 if size(sigma_Spm, 2) == 1, sigma_Spm = repmat(sigma_Spm, 1, nE); end
 assert(size(sigma_Spm, 2) == nE, 'assembleConductionP1:sigma', 'sigma must be 3 x 1 or 3 x nElem.');
 
+% Bound transient memory for a whole-nerve mesh on an 8 GB machine.
+blockSize = 150000; % Limit the 16 local stiffness entries per tetrahedron.
+if nE > blockSize
+    K = sparse(nN,nN); vol_m3 = zeros(1,nE); % Accumulate into the common global node numbering.
+    for first = 1:blockSize:nE
+        block = first:min(first+blockSize-1,nE); % Select the next contiguous element block.
+        [part,vol_m3(block)] = assembleConductionP1(nodes_m,tets(:,block),sigma_Spm(:,block)); % Assemble the same element formula.
+        K = K + part; % Sum contributions at shared nodes across blocks.
+    end
+    return
+end
 p1 = nodes_m(:, tets(1,:));
 a = nodes_m(:, tets(2,:)) - p1;   b = nodes_m(:, tets(3,:)) - p1;   c = nodes_m(:, tets(4,:)) - p1;
 V6 = dot(a, cross(b, c));                             % 6 x signed volume

@@ -32,8 +32,10 @@ addpath(root);  setup_paths;
 
 %% ===== OPTIONS ========================================================================
 patientId    = "UA01";
+if getenv("NERVE_CASE")=="personal", patientId="Cuff60"; end % Load the personal result when requested.
 gridStepXY_m = 50e-6;      % grid spacing across the nerve [m] (contacts are 50 um thick)
 gridStepZ_m  = 100e-6;     % grid spacing along the nerve [m] (contact side along z = 200 um)
+if patientId=="Cuff60", gridStepXY_m=100e-6; gridStepZ_m=200e-6; end % Limit the display grid while keeping the FEM mesh unchanged.
 zHalfSpan_m  = 12.5e-3;    % grid covers |z| <= this [m]; the contacts span |z| <= 10.4 mm
 eDecades     = 3;          % |E| and |J| are coded over this many decades below their 99.9th percentile
 
@@ -54,6 +56,11 @@ nxh = ceil(R / gridStepXY_m);   xs = (-nxh:nxh) * gridStepXY_m;   ys = xs;
 nzh = round(zHalfSpan_m / gridStepZ_m);   zs = (-nzh:nzh) * gridStepZ_m;
 [GX, GY, GZ] = ndgrid(xs, ys, zs);          % x varies fastest = layout of a WebGL 3D texture
 inNerve = GX.^2 + GY.^2 < R^2;
+if isfield(p,'personalGeometry') % Sample only the chosen native outline for the display grid.
+    q = p.personalGeometry; % Read the supplied ellipse and its rotation.
+    a = q.geometry.nerveSemiAxes_m; phi = q.geometry.nerveRotation_deg; % Extract the native transverse axes.
+    inNerve = ((GX.*cosd(phi)+GY.*sind(phi))./a(1)).^2+((-GX.*sind(phi)+GY.*cosd(phi))./a(2)).^2<1; % Select voxels inside the rotated ellipse.
+end % Keep the circle for the reference dataset.
 P = [GX(inNerve), GY(inNerve), GZ(inNerve)];
 clear GX GY GZ
 fprintf('Grid %d x %d x %d (%.1f M voxels, %.2f M inside the nerve): locating in the mesh...\n', ...
@@ -66,15 +73,15 @@ tic;
 cached = false;
 if isfile(cacheFile)
     C = load(cacheFile);
-    cached = isequal(C.key, key);
+    cached = isequal(C.key,key) && isfield(C,'created') && isequal(C.created,out.created); % Only reuse locations for this exact saved simulation.
 end
 if cached
     tetId = C.tetId;   bary = C.bary;
     fprintf('   reused the cached location (%s)\n', cacheFile);
 else
-    tr = triangulation(T', X');
-    [tetId, bary] = pointLocation(tr, P);
-    save(cacheFile, 'key', 'tetId', 'bary', '-v7.3');
+    [tetId,bary]=locateRegularGrid(X,T,{xs,ys,zs},inNerve); % Locate voxels in the actual duplicated-node tetrahedra.
+    created = out.created; % Tie location cache entries to the actual solution.
+    save(cacheFile, 'key','created', 'tetId', 'bary', '-v7.3');
 end
 clear C
 found = ~isnan(tetId);
@@ -100,42 +107,24 @@ sigU = tissueSigma(:, elemTissue(ut));
 siteU = elemSite(ut);
 
 %% ===== GEOMETRY FILE ==================================================================
-toMm = @(v) round(v / mm, 5);
-solved = out.solvedIds(:)';
-siteList = cell(height(sites), 1);
-for k = 1:height(sites)
-    j = find(solved == sites.id(k), 1);
-    s = struct('id', sites.id(k), 'type', string(sites.type(k)), 'section', sites.section(k), ...
-               'centre', toMm(sites.centre_m(k, :)), 'n', round(sites.n(k, :), 6), ...
-               'w', round(sites.w(k, :), 6), 'thickness', toMm(sites.thickness_m(k)), ...
-               'sideXY', toMm(sites.sideXY_m(k)), 'sideZ', toMm(sites.sideZ_m(k)), ...
-               'solved', ~isempty(j), 'location', "", 'R_kOhm', NaN);
-    if ~isempty(j)
-        s.location = res.location(j);   s.R_kOhm = round(res.R_kOhm(j), 3);
-    end
-    siteList{k} = s;
-end
-fascList = cell(height(F), 1);
-for i = 1:height(F)
-    fascList{i} = struct('id', i, 'x', toMm(F.x_m(i)), 'y', toMm(F.y_m(i)), 'r', toMm(F.rEndo_m(i)), ...
-                         'tPeri_um', round(F.tPeri_m(i) * 1e6, 2));
-end
-model = struct( ...
-    'patient', struct('id', patient.id, 'seed', patient.seed, 'level', string(patient.level), ...
-                      'nInner', patient.generatorInfo.nInner), ...
-    'units', "mm; fields for a 1 uA monopolar stimulus (return = grounded outer boundary)", ...
-    'nerveRadius', toMm(R), 'nerveLength', toMm(p.domain.nerveLength_m), ...
-    'cuff', struct('length', toMm(p.cuff.length_m), 'wall', toMm(p.cuff.wallThickness_m)), ...
-    'outerRadius', toMm(p.domain.outerRadiusFactor * R), ...
-    'fascicles', {fascList}, 'sites', {siteList}, 'solvedIds', solved, ...
-    'grid', struct('nx', numel(xs), 'ny', numel(ys), 'nz', numel(zs), 'x0', toMm(xs(1)), ...
-                   'y0', toMm(ys(1)), 'z0', toMm(zs(1)), 'dx', toMm(gridStepXY_m), ...
-                   'dy', toMm(gridStepXY_m), 'dz', toMm(gridStepZ_m)), ...
-    'source', sprintf('results/main3d/%s_3d.mat (created %s)', patientId, out.created), ...
-    'exported', string(datetime("now")));
-writeJs(fullfile(outDir, 'geometry.js'), 'NV.setModel', model);
+solved=out.solvedIds(:)'; % Export one field per solution column.
+model=viewerGeometry(out,xs,ys,zs,gridStepXY_m,gridStepZ_m); % Reuse the interactive geometry preview.
 
 %% ===== ONE FIELD FILE PER SOLVED CONTACT ==============================================
+inIdx = find(inNerve);
+% endoneurium mask and fascicle index of every voxel (the section is the same at every z)
+[GX2, GY2] = ndgrid(xs, ys);
+fasc2 = zeros(size(GX2));
+for i = 1:height(F)
+    [xx,yy]=fascicleOutline(F,i,linspace(0,2*pi,361)); % Use the actual rotated endoneurial contour.
+    fasc2(inpolygon(GX2,GY2,xx,yy))=i; % Assign this fascicle's grid points.
+end
+fascOf = repmat(fasc2, 1, 1, numel(zs));
+inEndo = fascOf > 0;
+nF = height(F);
+mAF = round(p.plot3d.afSpacing_m / gridStepZ_m);    % internode in grid steps
+dzAF_m = mAF * gridStepZ_m;
+fprintf('Activating function over Dz = %.2f mm (p.plot3d.afSpacing_m), endoneurium only\n', dzAF_m / mm);
 for j = 1:numel(solved)
     id = solved(j);   tic;
     u = double(out.V_per_A(:, j));
@@ -148,15 +137,43 @@ for j = 1:numel(solved)
     [codeV, qV] = codeLinear(Vpt);
     [codeE, qE] = codeLog(Emag(loc), eDecades);
     [codeJ, qJ] = codeLog(Jmag(loc), eDecades);
-    qV.unit = "mV";   qE.unit = "V/m";   qJ.unit = "uA/mm^2";
-    field = struct('id', id, 'quantities', struct('V', qV, 'E', qE, 'J', qJ), ...
+    % activating function, cathodic: A = -(V(z-Dz) - 2V(z) + V(z+Dz)) / Dz^2, endoneurium only
+    Vfull = nan(size(inNerve));
+    Vfull(inIdx(found)) = Vpt * mm;                                     % back to [V] for 1 uA
+    A = nan(size(inNerve));
+    A(:, :, 1+mAF:end-mAF) = -(Vfull(:, :, 1:end-2*mAF) - 2 * Vfull(:, :, 1+mAF:end-mAF) ...
+                               + Vfull(:, :, 1+2*mAF:end)) / dzAF_m^2;   % [V/m^2] for 1 uA
+    A(~inEndo) = NaN;
+    okA = ~isnan(A);
+    [codeA, qA] = codeLog(A(okA), eDecades);
+    volA = zeros(size(inNerve), 'uint8');   volA(okA) = codeA;
+    qV.unit = "mV";   qE.unit = "V/m";   qJ.unit = "uA/mm^2";   qA.unit = "V/m^2";
+    qA.spacing_mm = dzAF_m / mm;
+    field = struct('id', id, 'quantities', struct('V', qV, 'E', qE, 'J', qJ, 'A', qA), ...
                    'data', struct('V', toVolume(codeV, inNerve, found), ...
                                   'E', toVolume(codeE, inNerve, found), ...
-                                  'J', toVolume(codeJ, inNerve, found)));
+                                  'J', toVolume(codeJ, inNerve, found), ...
+                                  'A', matlab.net.base64encode(volA(:)')));
+    field.source=model.source; % Identify the FEM solution used for this contact.
     writeJs(fullfile(outDir, sprintf('AS%d.js', id)), 'NV.addField', field);
-    fprintf('   AS %2d: V %.2f ... %.2f mV, |E| up to %.0f V/m, |J| up to %.1f A/m^2 (per uA)  [%.1f s]\n', ...
-            id, qV.lo, qV.hi, qE.hi, qJ.hi, toc);
+    % First look at which fascicles this contact drives. Each grid line along z inside a fascicle is
+    % taken as one fibre (uniform density), with its maximum AF along z; the fascicle is summarised by
+    % the AF reached by 10% of its fibres (90th percentile), the recruitment level of Zelechowski 2020.
+    % The single peak is not used: it comes from the few fibres touching the contact edges, where the
+    % activating function is nearly singular. Printout only; the real criterion is phase 5.
+    afMaxLine = max(A, [], 3, 'omitnan');                               % nx x ny, NaN outside fascicles
+    af10 = zeros(1, nF);
+    for i = 1:nF
+        a = sort(afMaxLine(fasc2 == i & ~isnan(afMaxLine)), 'descend');
+        if ~isempty(a), af10(i) = a(max(1, ceil(0.10 * numel(a)))); end
+    end
+    [pk, ord] = sort(af10, 'descend');
+    fprintf('   AS %2d: V %.2f ... %.2f mV, |E| up to %.0f V/m, |J| up to %.1f A/m^2, AF up to %.0f V/m^2 (per uA)  [%.1f s]\n', ...
+            id, qV.lo, qV.hi, qE.hi, qJ.hi, qA.hi, toc);
+    fprintf('          AF reached by 10%% of the fibres [V/m^2 per uA]: %s\n', ...
+            strjoin(compose('F%d %.0f', [ord(1:min(4,nF)); pk(1:min(4,nF))]'), ', '));
 end
+writeJs(fullfile(outDir,'geometry.js'),'NV.setModel',model); % Enable the solved model after all matching fields are ready.
 fprintf('Done: %s\nOpen viewer/index.html (add ?patient=%s if it is not UA01).\n', outDir, patientId);
 
 
@@ -187,8 +204,10 @@ end
 
 function writeJs(fileName, fnName, s)
 %WRITEJS Write  fnName(<json>);  to a .js file.
-fid = fopen(fileName, 'w');
+tempFile=tempname(fileparts(fileName)); % Stage the script on the destination volume.
+fid = fopen(tempFile, 'w');
 assert(fid > 0, 'Cannot write %s', fileName);
 fprintf(fid, '%s(%s);\n', fnName, jsonencode(s));
-fclose(fid);
+fclose(fid); % Finish writing before exposing the new script.
+movefile(tempFile,fileName,'f'); % Replace the previous complete export.
 end

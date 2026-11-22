@@ -3,26 +3,39 @@ function p = quicklook3DParams() % Collect the editable inputs for the 3D geomet
 p = pw6_2d_params(); % Reuse the group settings and tutor's contact file.
 p.domain.length_m = 60e-3; % Show the full 6 cm segment discussed with the tutor.
 p.geometry.radius_m = p.geometry.pw6.nerveRadius_m; % Retain a scalar scale for the provisional circle.
-p.geometry.nerveSemiAxes_m = [p.geometry.radius_m, p.geometry.radius_m]; % Edit these two values when the oval axes arrive.
-p.geometry.nerveRotation_deg = 0; % Edit the cross-section rotation when measured.
-% These illustrative positions allow both a straight crossing and a clear route at every station.
-fascicles_mm = [0.000,  0.000, 0.38;  % F1, central demonstration obstacle.
-                1.245,  0.345, 0.21;  % F2, peripheral.
-                0.495,  1.245, 0.21;  % F3, peripheral.
-               -0.430,  1.245, 0.21;  % F4, peripheral.
-               -1.155,  0.420, 0.21;  % F5, peripheral.
-               -0.780,  0.020, 0.21;  % F6, peripheral.
-               -1.255, -0.505, 0.21;  % F7, peripheral.
-               -0.355, -1.305, 0.21;  % F8, peripheral.
-                0.670, -1.005, 0.21;  % F9, peripheral.
-                1.245, -0.480, 0.21]; % F10, peripheral.
-p.geometry.fascicles_m = [1e-3*fascicles_mm(:,1:2), 1e-3*fascicles_mm(:,3), ...
-    1e-3*fascicles_mm(:,3), zeros(size(fascicles_mm,1),1)]; % Store [x y semi-axis x semi-axis y rotation_deg].
+p.geometry.roundness=0.62; % Pusnik 2025, Table 1, histological mean at mid-arm.
+p.geometry.nerveSemiAxes_m=p.geometry.radius_m*[1/sqrt(p.geometry.roundness),sqrt(p.geometry.roundness)]; % Preserve the measured 9.20 mm2 section.
+p.geometry.nerveRotation_deg=0; % Provisional device-to-nerve orientation.
+p.geometry.layoutSeed=1; % Synthetic coordinates; individual fascicle positions were not measured.
+p.geometry.layoutTemplate=[ ... % Synthetic reference: normalized centres and relative fascicle areas.
+    -0.2280128549 -0.4214593498 1.4900000000; ... % F1, simulated position.
+    -0.4434229617 0.3119792249 0.1276734544; ... % F2, simulated position.
+    -0.7915181022 0.2004375260 0.3404542581; ... % F3, simulated position.
+    -0.7522162956 -0.3760097121 0.1946951764; ... % F4, simulated position.
+    0.5893623139 -0.2436962103 1.1899043082; ... % F5, simulated position.
+    0.2164414934 -0.7932066252 0.1179122677; ... % F6, simulated position.
+    0.6174268395 0.5438026978 0.1872820740; ... % F7, simulated position.
+    -0.3162605864 0.7383269006 0.1700136156; ... % F8, simulated position.
+    0.1375707486 0.5124654774 1.1170499756; ... % F9, simulated position.
+    -0.6142282775 0.6225495706 0.0750148700]; % F10, simulated position.
+p.geometry.fascicles_m=midArmLayout(p); % Match the 5.01 mm2 total and 1.49 mm2 largest fascicle.
 %% 2. Cuff and strip geometry
-p.electrode.cuffExtraIndentation_m = 0; % Add no extra compression beyond the minimum needed for full pad contact.
+p.mechanics.mu_Pa=12.9e3; % Main et al. (2011), Table 1, whole median nerve at the wrist.
+p.mechanics.alpha=6.5; % First-order Ogden exponent with the published mu/alpha^2 convention.
+p.electrode.cuffMeasuredDepth_m = zeros(0,2); % Optional rows [external site ID, measured centre indentation in metres].
+p.electrode.cuffExtraIndentation_m = 3e-6; % Trial closure per pad beyond full seating (assumed, adjustable).
 p.electrode.cuffTransition_m = 0.40e-3; % Blend along the nerve beyond each cuff pad edge.
 p.electrode.cuffLateralTransition_m = 0.12e-3; % Blend around the 0.20 mm pad width in the cross-section.
-p.electrode.maxDeflection_m = 0.8e-3; % Maximum lateral shift explored by the geometric search.
+p.electrode.maxDeflection_m = max(p.geometry.nerveSemiAxes_m); % Maximum lateral shift explored by the geometric search.
+p.electrode.routingModel = "beam"; % Use reduced-order elastic equilibrium with perineurial contact.
+p.electrode.foundation_Npm2 = 250; % Provisional lateral epineurial support per unit length per displacement.
+p.electrode.reverseEntrySections = 1:4; % Provisional winding layout: insert from the opposite end of each repeated axis.
+p.electrode.entryAngleRange_deg = 5; % Illustrative symmetric insertion tolerance in degrees; replace with measured data.
+p.electrode.initialBow_m = 0.045e-3; % Provisional bound on the unloaded strip imperfection.
+p.electrode.appliedInsertionForce_N = NaN; % Supply a measured insertion load to enable the conditional rupture scenario.
+p.electrode.calibratedPunctureForce_N = NaN; % Supply a device-specific normal puncture force when measured.
+p.electrode.routeSeed = 20261120; % Editable seed for provisional independent insertion trajectories.
+p.electrode.tipOverhang_m = 0.05e-3; % Provisional distance beyond the distal pad edge along the insertion axis.
 %% 3. Local mesh controls
 p.meshPreview.hMax_m = 0.18e-3; % Set the first tetrahedral target size for a single contact slab.
 p.meshPreview.hMin_m = 0.025e-3; % Resolve the local contact without implying a convergence study.

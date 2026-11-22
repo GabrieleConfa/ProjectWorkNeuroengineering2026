@@ -54,7 +54,7 @@ assert(max(abs(sites.z_m)) + hz < zF && zF < Lc/2 && Lc/2 < L/2, ...
        'Need: contacts < fine zone (%.1f mm) < cuff/2 (%.1f mm) < nerve/2 (%.1f mm).', zF*1e3, Lc/2e3, L/2e3);
 cuff = sites.type == "cuff";
 hw = max(sites.sideXY_m(cuff)) / 2;
-assert(delta > hw^2 / (2*R), 'cuffIndent_m (%.1f um) must exceed the sagitta %.1f um.', delta*1e6, hw^2/(2*R)*1e6);
+assert(isfield(p,'personalGeometry') || delta > hw^2 / (2*R), 'cuffIndent_m (%.1f um) must exceed the sagitta %.1f um.', delta*1e6, hw^2/(2*R)*1e6);
 assert(all(sites.thickness_m(cuff) - delta < Rc - R), 'The cuff contacts must fit inside the cuff wall.');
 
 %% 2D section: tissues only -------------------------------------------------------------------------
@@ -65,6 +65,17 @@ gd(:, end+1) = [1; 0; 0; R;  zeros(6,1)];   names(end+1) = "N";
 for i = 1:nF
     gd(:, end+1) = [1; F.x_m(i); F.y_m(i); F.rEndo_m(i); zeros(6,1)];   names(end+1) = "E" + i; %#ok<AGROW>
 end
+if isfield(p,'personalGeometry') % Replace the reference circles with measured or provisional ellipses.
+    q = p.personalGeometry; % Read the same configured anatomy as the section plots.
+    if diff(q.geometry.nerveSemiAxes_m)~=0 % Retain analytic circles for the original circular case.
+        gd(:,3)=[4;0;0;q.geometry.nerveSemiAxes_m(:);deg2rad(q.geometry.nerveRotation_deg);zeros(4,1)]; % Encode the rotated nerve ellipse.
+    end % Finish the outer nerve surface.
+    for k=find(F.a_m~=F.b_m)' % Update each noncircular fascicle.
+        gd(:,3+k)=[4;F.x_m(k);F.y_m(k);F.a_m(k);F.b_m(k);deg2rad(F.angle_deg(k));zeros(4,1)]; % Define the endoneurial region.
+    end % Finish all supplied elliptical outlines.
+end % Keep the legacy patient geometry available.
+if isfield(p,'personalGeometry') % Force the CAD tessellation to carry both edges of each finite contact face.
+end % Keep analytic reference cases as before.
 [dl, bt] = decsg(gd, char(strjoin(names, "+")), char(names(:))');
 g2 = fegeometry(dl);
 nF2 = size(bt, 1);   colE = 3 + (1:nF);
@@ -158,6 +169,11 @@ geom = struct('g', g, 'cellTissue', cellTissue, 'cellFascicle', cellFascicle, 'c
                         'facePoint_m', facePt), ...
     'nMerges', nMerge, 'time_s', toc(t0));
 
+    if isfield(p,'personalGeometry') % Save the transverse outline for the shared plotting routine.
+        th=linspace(0,2*pi,300)'; % Match the angular samples in drawSection.
+        geom.nerveOutline=nerveBoundaryRadius(p.personalGeometry,[cos(th),sin(th)])'; % Export the native polar radii in metres.
+    end % Finish the geometry metadata.
+
     function setRole(c, t, fascIdx, siteId, z)
     %SETROLE Give cell c its role; a cell reached by two different roles is an error.
     if cellTissue(c) == 0
@@ -172,24 +188,11 @@ end
 function P = boxPoints(site)
 %BOXPOINTS 3 x 5 x 3 points inside a contact box (at 80% of its half-sides), used to find all the
 % pieces of the box after the union and to check its orientation.
-[a, b, c] = ndgrid([-0.8 0 0.8] * site.thickness_m / 2, linspace(-0.8, 0.8, 5) * site.sideXY_m / 2, ...
+normalSamples = [-0.8 0 0.8]; % Sample the bulk of each contact.
+if site.type=="cuff", normalSamples=[-0.999 0 0.999]; end % Detect the thin chord cut by either inward-facing normal.
+[a, b, c] = ndgrid(normalSamples * site.thickness_m / 2, linspace(-0.8, 0.8, 5) * site.sideXY_m / 2, ...
                    [-0.8 0 0.8] * site.sideZ_m / 2);
 P = site.centre_m + a(:) * site.n + b(:) * site.w + c(:) * [0 0 1];
-end
-
-function fp = contactFootprints(sites)
-%CONTACTFOOTPRINTS Outline of every distinct contact in the x-y plane (sections +k and -k share it).
-fp = struct('corners_m', {}, 'siteIds', {}, 'kind', {});
-key = round([sites.centre_m(:,1:2), sites.phi_deg / 1e3] * 1e7);
-[~, iu, ic] = unique(key, 'rows', 'stable');
-sgn = [-1 -1; 1 -1; 1 1; -1 1];
-for k = 1:numel(iu)
-    s = sites(iu(k), :);
-    fp(k).corners_m = s.centre_m(1:2) + sgn(:,1) * (s.thickness_m/2) * s.n(1:2) ...
-                                      + sgn(:,2) * (s.sideXY_m/2) * s.w(1:2);
-    fp(k).siteIds = sites.id(ic == k);
-    fp(k).kind = string(s.type);
-end
 end
 
 function pt = interiorPoints(g2, hmax)

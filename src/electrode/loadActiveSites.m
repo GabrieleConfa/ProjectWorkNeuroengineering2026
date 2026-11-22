@@ -38,6 +38,10 @@ arguments
 end
 
 mm = 1e-3;                                   % mm -> m
+if ~isfile(filePath) % Resolve the supplied layout after moving a saved project to another computer.
+    [~,name,ext]=fileparts(filePath); % Preserve errors for custom input files.
+    if strcmp([name ext],'sites.mat'), filePath=fullfile(fileparts(fileparts(fileparts(mfilename('fullpath')))),'data','electrode','sites.mat'); end % Use the bundled tutor layout.
+end % Continue with the recovered or explicitly supplied path.
 S  = load(filePath, "sites");
 M  = S.sites;
 assert(size(M, 2) == 10, 'loadActiveSites:format', ...

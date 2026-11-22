@@ -8,6 +8,8 @@ validateQuicklookAnatomy(p); % Reject invalid oval or fascicle positions before 
 sites = loadActiveSites(p.electrode.sitesFile,p.geometry.radius_m); % Read the original 48 active-site rows.
 cuff = sites(sites.type=="cuff" & sites.section==section,:); % Select the two finite cuff pads at this station.
 assert(height(cuff)==2,'The selected station needs exactly two cuff pads.'); % Keep the local electrical setup explicit.
+internal=sites(sites.type=="intraneural" & sites.section==section,:); % Locate the internal pads at this same station.
+strip=planQuicklookStrip(p,internal,cuff,"deflect"); % Recover the approved geometry for the position overlay.
 meshPreview = buildQuicklookMesh(p,cuff); % Mesh the true locally indented contact cross-section.
 field = solveQuicklookSlab(p,meshPreview,cuff); % Solve the stationary two-pad volume conductor.
 %% 2. Export a mesh view that exposes the finite contact footprints
@@ -24,6 +26,8 @@ scatter3(ax,1e3*field.nodes_m(1,field.activeNodes),1e3*field.nodes_m(2,field.act
     1e3*field.nodes_m(3,field.activeNodes),18,[0.82 0.18 0.12],'filled'); % Mark the source pad's actual mesh nodes.
 scatter3(ax,1e3*field.nodes_m(1,field.returnNodes),1e3*field.nodes_m(2,field.returnNodes), ...
     1e3*field.nodes_m(3,field.returnNodes),18,[0.08 0.27 0.58],'filled'); % Mark the grounded return pad nodes.
+leadLine=plot3(ax,1e3*strip.path_m(:,1),1e3*strip.path_m(:,2),1e3*strip.path_m(:,3),Color=[0.13 0.38 0.92],LineWidth=1.8); % Locate the passive lead relative to the slab.
+legend(ax,leadLine,{'Lead position (overlay)'},Location="best"); % Distinguish the positional overlay from the tetrahedral mesh.
 axis(ax,'equal'); grid(ax,'on'); view(ax,35,28); % Preserve millimetre proportions and allow mesh inspection.
 xlabel(ax,'x [mm]'); ylabel(ax,'y [mm]'); zlabel(ax,'z [mm]'); % Give the physical mesh axes.
 title(ax,sprintf('Section %+d | %d tetrahedra | red: +1 µA, blue: return',section,size(field.tets,2))); % Identify the electrical terminals.
@@ -51,6 +55,12 @@ for k = 1:size(p.geometry.fascicles_m,1) % Overlay each anatomical perineurium.
     y = f(2)+a*cos(theta)*sind(f(5))+b*sin(theta)*cosd(f(5)); % Rotate its y boundary.
     plot(ax,1e3*x,1e3*y,'k-',LineWidth=0.6); % Mark the resistive fascicle sheath.
 end % Finish plotting all provisional fascicles.
+leadLine=plot(ax,1e3*strip.path_m(:,1),1e3*strip.path_m(:,2),Color=[0.13 0.38 0.92],LineWidth=1.8); % Show the lead position on the cuff-only field.
+for j=1:size(strip.padFaces_m,3) % Project the four passive internal pads into the section.
+    face=1e3*strip.padFaces_m(:,:,j); % Read the finite contact corners in millimetres.
+    padLine=plot(ax,face(1:2,1),face(1:2,2),Color=[0.57 0.14 0.83],LineWidth=3); % Mark each internal pad on its carrier.
+end % Finish the overlays.
+legend(ax,[leadLine padLine],{'Lead position','Internal pad position'},Location="southoutside",Orientation="horizontal"); % Identify geometry over the two-cuff solution.
 xlabel(ax,'x [mm]'); ylabel(ax,'y [mm]'); % Label the transverse plane.
 title(ax,sprintf('Local slab | section %+d | V [mV] for 1 µA | not full-nerve stimulation',section)); % Prevent clinical interpretation.
 exportgraphics(figField,fullfile(outDir,sprintf('potential_section_%+d.png',section)),Resolution=170); % Save the solved field map.

@@ -16,6 +16,7 @@
 %   results/main3d/<id>_*.png         cross-section, z layout, potential maps and profiles
 %
 % Model in short (choices and reasons: docs/decisions.md D-02 ... D-09)
+%   Reference case only (the personal case is configured by personalDevice3D):
 %   - geometry: circular nerve (the rigid cuff is tight on it), fascicles generated from the
 %     literature (makePatient), the same section along the 70 mm (layered extrusion);
 %   - cuff: 50 mm, centred on the contacts, wall = void (perfect insulator); flat cuff contacts
@@ -26,13 +27,14 @@
 %     exactly I); idle contacts insulating (as in 2D);
 %   - outer muscle surface (and the end planes, by default) grounded.
 %   The FE system is assembled by the project's own P1 code (src/fem/), checked by
-%   tests/testThinLayerFEM.m; the PDE Toolbox builds the geometry and the mesh.
+%   tests/testThinLayerFEM.m. The reference mesh uses PDE Toolbox. The personal
+%   mesh uses Gmsh and MATLAB checks each shared pad face before assembly.
 %
 % Units: SI inside the code (m, S/m, A, V); mm, um, uA, mV only in prints and plots.
 % Run: press Run in the editor, or type main_pipeline_3d (the script adds the project paths itself).
 % Time: geometry ~ minutes (many cell merges), mesh ~ minutes, each contact ~ 1 solve.
 
-clear; close all; clc;
+clear; % Isolate the numerical stage while keeping the geometry figures open.
 mm = 1e-3;   um = 1e-6;
 root = fileparts(fileparts(fileparts(mfilename('fullpath'))));   % project root
 addpath(root);  setup_paths;
@@ -42,51 +44,73 @@ if ~exist(outDir, 'dir'), mkdir(outDir); end
 
 %% ===== 1. PARAMETERS, PATIENT, CONTACTS ==============================================
 p = pw6_3d_params();
-patient = makePatient(p.patient.id, p.patient.seed, p);
+if getenv("NERVE_CASE")=="personal" % Select the personal anatomy without changing the original case.
+    [p,patient,sites] = personalDevice3D(p,quicklook3DParams()); % Use the preview pads in the actual 3D FEM.
+else % Use the colleague's original seeded patient.
+    patient = makePatient(p.patient.id,p.patient.seed,p); % Generate the reference anatomy.
+    sites = loadActiveSites(p.electrode.sitesFile,patient.nerveRadius_m); % Read the reference contact table.
+end % Both cases now enter the same mesh and solver.
 R = patient.nerveRadius_m;   fasc = patient.fascicles;   nF = height(fasc);
 genParams = struct('geometry', p.geometry, 'perineurium', p.perineurium, ...
                    'sitesFile', p.electrode.sitesFile, 'created', string(datetime("now")));
-save(fullfile(root, 'data', 'patients', patient.id + ".mat"), 'patient', 'genParams');
+if isfield(p,'personalGeometry') % Keep the generated personal case beside its simulation outputs.
+    genParams.personalGeometry=p.personalGeometry; % Record the actual provisional anatomy and device settings.
+    save(fullfile(outDir,patient.id+"_patient.mat"),'patient','genParams'); % Preserve the source patient data directory.
+else % Preserve the existing reference workflow.
+    save(fullfile(root,'data','patients',patient.id+".mat"),'patient','genParams'); % Store the reference patient as before.
+end % Finish the patient record.
 fprintf('Patient %s (seed %d, %s): R = %.3f mm, %d fascicles, %d inner (target %d), %d restarts\n', ...
         patient.id, patient.seed, patient.level, R/mm, nF, patient.generatorInfo.nInner, ...
         patient.generatorInfo.targetInner, patient.generatorInfo.restarts);
 disp(table((1:nF)', round(fasc.x_m/mm, 3), round(fasc.y_m/mm, 3), round(fasc.rEndo_m/mm, 3), ...
      round(pi*fasc.rEndo_m.^2/mm^2, 3), 'VariableNames', {'F', 'x_mm', 'y_mm', 'rEndo_mm', 'area_mm2'}));
 
-sites = loadActiveSites(p.electrode.sitesFile, R);
+
 sites.thickness_m(:) = p.electrode.thicknessOverride_m;   % 50 um (slides), not the 5 um of sites.mat
 isCuff = sites.type == "cuff";
 % flat cuff contacts pressed into the nerve: inner face at R - indent
-sites.r_m(isCuff) = R - p.electrode.cuffIndent_m + sites.thickness_m(isCuff) / 2;
-sites.centre_m(isCuff, 1:2) = sites.r_m(isCuff) .* [cosd(sites.theta_deg(isCuff)), sind(sites.theta_deg(isCuff))];
+if ~isfield(p,'personalGeometry') % The original circular case uses radial closure.
+    sites.r_m(isCuff) = R - p.electrode.cuffIndent_m + sites.thickness_m(isCuff) / 2; % Locate the reference pad centres.
+    sites.centre_m(isCuff, 1:2) = sites.r_m(isCuff) .* [cosd(sites.theta_deg(isCuff)), sind(sites.theta_deg(isCuff))];
+end % Preserve the personal pads translated along the local ellipse normals.
 where = contactLocation(sites, fasc);
 
 
 %% ===== 2. GEOMETRY ===================================================================
-geom = buildNerveGeometry3D(patient, sites, p);
-g = geom.g;
-fprintf('\nGeometry: %d cells (endo %d, epi %d, muscle %d, contacts %d), %d faces, %d merges, %.0f s\n', ...
-        g.NumCells, nnz(geom.cellTissue == 1), nnz(geom.cellTissue == 3), nnz(geom.cellTissue == 4), ...
-        nnz(geom.cellTissue == 5), g.NumFaces, geom.nMerges, geom.time_s);
+personal=isfield(p,'personalGeometry'); % Select the shared-interface mesh for the fitted cuff.
+tic; % Time the personal tetrahedral mesh stage.
+if personal % Apply the finite contact footprint for this device.
+    [geom,X,T,elemCell]=meshPersonalDevice(p,patient,sites); % Generate conforming tetrahedra around each finite pad.
+    nN=size(X,2); nE=size(T,2); % Record mesh dimensions.
+else
+    geom = buildNerveGeometry3D(patient, sites, p);
+    g = geom.g;
+    fprintf('\nGeometry: %d cells (endo %d, epi %d, muscle %d, contacts %d), %d faces, %d merges, %.0f s\n', ...
+            g.NumCells, nnz(geom.cellTissue == 1), nnz(geom.cellTissue == 3), nnz(geom.cellTissue == 4), ...
+            nnz(geom.cellTissue == 5), g.NumFaces, geom.nMerges, geom.time_s);
 
 
-%% ===== 3. MESH =======================================================================
-h = geom.faceSize_m;   hs = unique(h(isfinite(h)))';
-Hf = {};
-for s = hs, Hf(end+1:end+2) = {find(h == s)', s}; end %#ok<AGROW>
-tic;
-gm = generateMesh(g, GeometricOrder="linear", Hmax=p.mesh3d.hMax_m, Hmin=p.mesh3d.hMin_m, ...
-                  Hgrad=p.mesh3d.hGrad, Hface=Hf);
-msh = gm.Mesh;   X = msh.Nodes;   T = double(msh.Elements);
-nN = size(X, 2);   nE = size(T, 2);
-elemCell = zeros(1, nE);
-for c = 1:g.NumCells, elemCell(findElements(msh, "region", "Cell", c)) = c; end
-assert(all(elemCell > 0), 'Some elements belong to no cell.');
+    %% ===== 3. MESH =======================================================================
+    h = geom.faceSize_m;   hs = unique(h(isfinite(h)))';
+    Hf = {};
+    for s = hs, Hf(end+1:end+2) = {find(h == s)', s}; end %#ok<AGROW>
+    tic;
+    gm = generateMesh(g, GeometricOrder="linear", Hmax=p.mesh3d.hMax_m, Hmin=p.mesh3d.hMin_m, ...
+                      Hgrad=p.mesh3d.hGrad, Hface=Hf);
+    msh = gm.Mesh;   X = msh.Nodes;   T = double(msh.Elements);
+    nN = size(X, 2);   nE = size(T, 2);
+    elemCell = zeros(1, nE);
+    for c = 1:g.NumCells, elemCell(findElements(msh, "region", "Cell", c)) = c; end
+    assert(all(elemCell > 0), 'Some elements belong to no cell.');
+end % Complete case-specific mesh generation.
 elemTissue = geom.cellTissue(elemCell)';   elemSite = geom.cellSite(elemCell)';
 fprintf('Mesh: %d nodes, %d linear tetrahedra (%.0f s); per tissue: endo %d, epi %d, muscle %d, contacts %d\n', ...
         nN, nE, toc, nnz(elemTissue == 1), nnz(elemTissue == 3), nnz(elemTissue == 4), nnz(elemTissue == 5));
 
 
+if isfield(p,'personalGeometry') % Verify the external contacts before assembling the conduction problem.
+    cuffAudit=checkCuffMeshContact(X,T,elemTissue,elemSite,sites,p.personalGeometry); disp(cuffAudit); % Report shared epineurial area for each physical pad.
+end % Complete the interface audit.
 %% ===== 4. FE SYSTEM AND SOLUTION =====================================================
 sigT = p.materials.sigmaT_Spm;   sigL = p.materials.sigmaL_Spm;   % endo, peri, epi, muscle
 Gs = sigT(2) / p.perineurium.realThickness_m;                      % perineurium sheet conductance
@@ -94,7 +118,11 @@ fprintf('\nPerineurium thin layer: sheet resistance %.0f Ohm*cm^2 (Gs = %.1f S/m
 
 % thin layer: duplicate the nodes of the fascicle boundaries (not those shared with a contact)
 contactNodes = unique(T(:, elemTissue == 5));
-ifaceNodes = setdiff(findNodes(msh, "region", "Face", geom.interfaceFaces), contactNodes);
+if personal % Derive the physical perineurial interfaces from shared nodes.
+    ifaceNodes=setdiff(intersect(unique(T(:,elemTissue==1)),unique(T(:,elemTissue==3))),contactNodes); % Find the shared endoneurial surface.
+else
+    ifaceNodes = setdiff(findNodes(msh, "region", "Face", geom.interfaceFaces), contactNodes);
+end
 tl = thinLayerInterface(X, T, elemTissue == 1, ifaceNodes(:), Gs);
 nAll = tl.nNodes;
 fprintf('   %d interface nodes duplicated, interface area %.1f mm^2 (fascicle perimeters x length: %.1f mm^2)\n', ...
@@ -111,7 +139,13 @@ sig = tissueSigma(:, elemTissue);
 [K0, vol] = assembleConductionP1(tl.nodes_m, tl.tets, sig);
 K0 = K0 + tl.K;
 
-gnd = findNodes(msh, "region", "Face", geom.groundFaces);
+if personal % Obtain the exterior return electrodes from physical coordinates.
+    grounded=abs(hypot(X(1,:),X(2,:))-R*p.domain.outerRadiusFactor)<1e-10; % Identify the cylindrical return boundary.
+    if p.domain.endBC=="ground", grounded=grounded | abs(abs(X(3,:))-p.domain.nerveLength_m/2)<1e-10; end % Include grounded end planes when requested.
+    gnd=find(grounded); % Gather all nodes held at zero potential.
+else
+    gnd = findNodes(msh, "region", "Face", geom.groundFaces);
+end
 gnd = unique([gnd(:); nonzeros(tl.copyOf(gnd))]);
 free = true(nAll, 1);   free(gnd) = false;
 
@@ -149,21 +183,24 @@ end
 
 %% ===== 5. RESULTS ====================================================================
 tag = patient.id + "_3d";
-plotSectionLayout(patient, geom, sites, p, fullfile(outDir, tag + "_section.png"));
-tr = triangulation(tl.tets', tl.nodes_m');
-for sec = unique(sites.section(ismember(sites.id, solveIds)))'
-    cols = find(ismember(solveIds, sites.id(sites.section == sec)));
-    plotContactResults(tr, V(:, cols), sites(ismember(sites.id, solveIds(cols)), :), patient, geom, p, ...
-                       res(cols, :), fullfile(outDir, sprintf('%s_section%+d.png', tag, sec)));
-end
-
 out = struct('params', p, 'patient', patient, 'sites', sites, 'solvedIds', solveIds, 'results', res, ...
     'mesh', struct('nodes_m', tl.nodes_m, 'tets', uint32(tl.tets), 'elemCell', uint32(elemCell), ...
                    'nOriginalNodes', nN, 'dupOf', uint32(tl.dupOf)), ...
     'cells', struct('tissue', geom.cellTissue, 'fascicle', geom.cellFascicle, 'site', geom.cellSite, ...
                     'zone', geom.cellZone), ...
     'V_per_A', V, 'current_A', I0, 'created', string(datetime("now")));
+if exist('cuffAudit','var'), out.cuffAudit=cuffAudit; end % Keep the finite-element contact check with this solve.
 save(fullfile(outDir, tag + ".mat"), 'out', '-v7.3');
+if ~personal % The personal run generates its own audited mesh and eight station sheets.
+    plotSectionLayout(patient, geom, sites, p, fullfile(outDir, tag + "_section.png"));
+    tr = triangulation(tl.tets', tl.nodes_m');
+    for sec = unique(sites.section(ismember(sites.id, solveIds)))'
+        cols = find(ismember(solveIds, sites.id(sites.section == sec)));
+        plotContactResults(tr, V(:, cols), sites(ismember(sites.id, solveIds(cols)), :), patient, geom, p, ...
+                           res(cols, :), fullfile(outDir, sprintf('%s_section%+d.png', tag, sec)));
+    end
+end
+
 fprintf('\nDone: %s.mat and figures in %s\n', tag, outDir);
 disp(res);
 
@@ -177,7 +214,7 @@ switch opt.solver
     case "pcg"
         Lc = ichol(A, struct('type', 'ict', 'droptol', 1e-4, 'diagcomp', 1e-3));
         [x, flag, relres] = pcg(A, b, opt.pcgTol, 5000, Lc, Lc');
-        if flag ~= 0, warning('pcg did not converge (flag %d, relres %.1e).', flag, relres); end
+        assert(flag==0,'PCG failed (flag %d, residual %.2e).',flag,relres); % Require convergence before exporting a result.
     otherwise
         error('Unknown solver "%s".', opt.solver);
 end
@@ -192,7 +229,8 @@ for k = 1:height(sites)
     pts = sites.centre_m(k, 1:2) + s * sites.w(k, 1:2);
     lab = zeros(size(pts, 1), 1);
     for i = 1:height(fasc)
-        lab(hypot(pts(:,1) - fasc.x_m(i), pts(:,2) - fasc.y_m(i)) < fasc.rEndo_m(i)) = i;
+        [xx,yy] = fascicleOutline(fasc,i,linspace(0,2*pi,361)); % Read the true rotated outline.
+        lab(inpolygon(pts(:,1),pts(:,2),xx,yy)) = i; % Classify each sample inside this fascicle.
     end
     parts = strings(0);
     for v = unique(lab)'
@@ -201,29 +239,6 @@ for k = 1:height(sites)
     end
     where(k) = strjoin(parts, ", ");
 end
-end
-
-function drawSection(patient, geom, siteIdsToHighlight, sites)
-%DRAWSECTION Nerve, fascicles (with labels) and contact footprints, in mm.
-th = linspace(0, 2*pi, 300);   R = patient.nerveRadius_m;   f = patient.fascicles;
-plot(1e3*R*cos(th), 1e3*R*sin(th), 'k-', LineWidth=1);   hold on
-for i = 1:height(f)
-    plot(1e3*(f.x_m(i) + f.rEndo_m(i)*cos(th)), 1e3*(f.y_m(i) + f.rEndo_m(i)*sin(th)), '-', ...
-         Color=[0.25 0.25 0.25], LineWidth=0.8);
-    text(1e3*f.x_m(i), 1e3*f.y_m(i), "F" + i, HorizontalAlignment="center", FontWeight="bold", FontSize=8);
-end
-for k = 1:numel(geom.footprints)
-    c = geom.footprints(k).corners_m([1:4 1], :);
-    hl = any(ismember(geom.footprints(k).siteIds, siteIdsToHighlight));
-    col = [0.75 0.75 0.75];   if hl, col = [0.85 0 0]; end
-    plot(1e3*c(:,1), 1e3*c(:,2), '-', Color=col, LineWidth=1 + hl);
-end
-for s = siteIdsToHighlight(:)'
-    r = find(sites.id == s);   q = 1e3 * sites.centre_m(r, 1:2);
-    d = 0.13 * [cosd(sites.phi_deg(r)), sind(sites.phi_deg(r))];
-    text(q(1) + d(1), q(2) + d(2), string(s), Color=[0.85 0 0], FontSize=7, HorizontalAlignment="center");
-end
-axis equal; box on;
 end
 
 function plotSectionLayout(patient, geom, sites, p, fileName)
@@ -257,54 +272,5 @@ xlim(1e3*[-L L]/2 * 1.02); ylim(1e3*Rm*[-1 1] * 1.05);
 xlabel('z [mm]'); ylabel('radial position [mm]');
 title({sprintf('z layout: nerve %.0f mm (beige), cuff %.0f mm (dark, insulating), muscle (blue)', ...
                L*1e3, Lc*1e3), 'stations (red), layer planes (grey), fine-mesh zone (dotted)'}, FontSize=9);
-exportgraphics(gcf, fileName);
-end
-
-function plotContactResults(tr, V, S, patient, geom, p, res, fileName)
-%PLOTCONTACTRESULTS For each contact of one station: V on the cross-section through the contact,
-% V along z on the axis of every fascicle, and its second difference over one internode (activating-
-% function preview), all for 1 uA.
-nC = height(S);   R = patient.nerveRadius_m;   f = patient.fascicles;   nF = height(f);
-uA = 1e-6;   L = p.domain.nerveLength_m;   dz = p.plot3d.afSpacing_m;
-figure(Color="w", Position=[20 20 min(1900, 300*nC + 120) 1000], Name="Contacts");
-tl = tiledlayout(3, nC, TileSpacing="loose", Padding="loose");
-title(tl, sprintf('Patient %s, station %+d (z = %.1f mm): monopolar, 1 uA', patient.id, S.section(1), ...
-      S.z_m(1)*1e3), FontWeight="bold");
-n = 181;   [xg, yg] = meshgrid(linspace(-1.15, 1.15, n) * R);
-z = linspace(-L/2, L/2, 2801)';
-cmap = lines(nF);
-for j = 1:nC
-    % map at the contact plane
-    Vg = interpolateP1(tr, double(V(:, j)) * uA, [xg(:), yg(:), S.z_m(j) * ones(n^2, 1)]);
-    nexttile(tl, j);
-    imagesc(1e3*xg(1,:), 1e3*yg(:,1), reshape(1e3*Vg, n, n)); set(gca, YDir="normal"); hold on
-    colormap(gca, turbo); cb = colorbar; cb.Label.String = 'V [mV]';
-    drawSection(patient, geom, S.id(j), S);
-    xlim(1.15e3*R*[-1 1]); ylim(1.15e3*R*[-1 1]);
-    title(sprintf('AS %d (%s), %.1f kOhm', S.id(j), string(S.type(j)), res.R_kOhm(j)), FontSize=9);
-    subtitle(res.location(j), FontSize=7);
-    % V(z) along the fascicle axes
-    Vz = zeros(numel(z), nF);
-    for i = 1:nF
-        Vz(:, i) = interpolateP1(tr, double(V(:, j)) * uA, [f.x_m(i)*ones(numel(z),1), f.y_m(i)*ones(numel(z),1), z]);
-    end
-    nexttile(tl, nC + j);
-    set(gca, ColorOrder=cmap); hold on
-    plot(1e3*z, 1e3*Vz, LineWidth=1);
-    xline(1e3*S.z_m(j), 'r:');  xlim(1e3*(S.z_m(j) + [-12 12]*1e-3));
-    xlabel('z [mm]'); ylabel('V [mV]'); title('V on the fascicle axes', FontSize=9); grid on
-    if j == nC, legend("F" + (1:nF), Location="eastoutside", FontSize=7); end
-    % second difference over one internode (activating function preview, V/m^2). The solution is
-    % for a positive (anodic) current; for a CATHODIC pulse of 1 uA the sign flips, and a positive
-    % value means depolarisation (excitation).
-    k = round(dz / (z(2) - z(1)));
-    afCath = -(Vz(1:end-2*k, :) - 2*Vz(1+k:end-k, :) + Vz(1+2*k:end, :)) / (k*(z(2)-z(1)))^2;
-    nexttile(tl, 2*nC + j);
-    set(gca, ColorOrder=cmap); hold on
-    plot(1e3*z(1+k:end-k), afCath, LineWidth=1);
-    xline(1e3*S.z_m(j), 'r:');  xlim(1e3*(S.z_m(j) + [-12 12]*1e-3));
-    xlabel('z [mm]'); ylabel('\Delta^2V/\Deltaz^2 [V/m^2], >0 = depol.');
-    title(sprintf('cathodic \\Delta^2V, \\Deltaz = %.1f mm', dz*1e3), FontSize=9); grid on
-end
 exportgraphics(gcf, fileName);
 end

@@ -8,7 +8,7 @@
   Interactive 3D viewer of the solved median-nerve model (project work, Neuroengineering).
   Data: written by scripts/export_viewer_data.m into results/viewer/<patient>/ (geometry.js + AS<k>.js).
   Open this file directly in Chrome / Edge / Firefox (no server needed). Options in the URL:
-    index.html?patient=UA01            which exported patient to load (default UA01)
+    index.html?patient=UA01            which exported patient to load (default Cuff60)
     index.html?data=some/folder/       load the data from another folder (must end with /)
   Libraries: three.js r147 (MIT), vendored in viewer/vendor/ so the page also works offline.
   How it works: docs/model_3d.md, section 8.2.
@@ -31,6 +31,7 @@
   .glass { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px;
     backdrop-filter: blur(6px); }
   #title { position: fixed; left: 16px; top: 14px; padding: 8px 12px; max-width: 46vw; }
+  #cuffZoomLabel[hidden], body.inspectCuff #colorbar { display:none !important; }
   #title b { color: var(--accent); font-size: 14px; }
   #title .sub { color: var(--muted); margin-top: 2px; }
   #panel { position: fixed; right: 16px; top: 14px; width: 272px; max-height: calc(100vh - 28px);
@@ -65,6 +66,7 @@
     width: min(440px, calc(100vw - 32px)); box-sizing: border-box; display: none; }
   #colorbar .cbTitle { display: flex; justify-content: space-between; margin-bottom: 4px; }
   #colorbar .cbTitle b { color: #fff; }
+  #colorbar .cbTitle span:last-child { white-space: nowrap; margin-left: 10px; }
   #colorbar canvas { width: 100%; height: 12px; border-radius: 3px; display: block; }
   #colorbar .ticks { display: flex; justify-content: space-between; color: var(--muted); margin-top: 2px;
     font-variant-numeric: tabular-nums; }
@@ -99,6 +101,7 @@
       <button data-q="V" title="potential">V</button>
       <button data-q="E" title="electric field magnitude">|E|</button>
       <button data-q="J" title="current density magnitude">|J|</button>
+      <button data-q="A" title="activating function for a cathodic pulse: where fibres are depolarised">AF</button>
     </div>
     <label class="line">Current <input id="inI" type="number" min="0.01" step="any" value="1"><span class="val">µA</span></label>
     <label class="line">Window lo <input id="rLo" type="range" min="0" max="0.98" step="0.01"><span class="val" id="vLo"></span></label>
@@ -123,6 +126,10 @@
     </div>
     <div class="hint">Jump to the cross-section through a station:</div>
     <div class="stations" id="stations"></div>
+    <label class="line" id="cuffZoomLabel" hidden>Cuff contact <select id="cuffZoom"><option value="">Choose a pad</option></select></label>
+    <label id="cuffViewLabel" hidden>Contact view <select id="cuffView"><option value="oblique">Outside the nerve</option><option value="inside">Inside the nerve</option><option value="cross">Transverse</option><option value="long">Longitudinal</option></select></label>
+    <label id="interfaceLabel" hidden><input type="checkbox" id="interfaceWire"> Show contact triangles through pad</label>
+    <div id="cuffReadout" class="hint"></div>
   </section>
   <section>
     <h3>Show</h3>
@@ -132,7 +139,7 @@
       <label><input type="checkbox" id="cbCuff" checked> cuff</label>
       <label><input type="checkbox" id="cbCont" checked> contacts</label>
       <label><input type="checkbox" id="cbLabels" checked> labels</label>
-      <label title="whole 70 mm model instead of the electrode zone"><input type="checkbox" id="cbFull"> full length <kbd>L</kbd></label>
+      <label title="Show the entire simulated nerve"><input type="checkbox" id="cbFull"> full length <kbd>L</kbd></label>
     </div>
     <div class="seg"><button id="btnReset">Reset view <kbd>R</kbd></button></div>
   </section>
@@ -155,7 +162,7 @@
     <tr><td>click a contact</td><td>select it and stimulate (solved contacts only)</td></tr>
     <tr><td><kbd>Space</kbd> / <kbd>H</kbd></td><td>stimulation (heatmap) on / off</td></tr>
     <tr><td><kbd>←</kbd> <kbd>→</kbd></td><td>previous / next solved contact</td></tr>
-    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd></td><td>show V, |E|, |J|</td></tr>
+    <tr><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>show V, |E|, |J|, activating function</td></tr>
     <tr><td><kbd>C</kbd></td><td>cut: none → transverse → longitudinal</td></tr>
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>move the cut</td></tr>
     <tr><td><kbd>F</kbd></td><td>flip the side that is cut away</td></tr>
@@ -176,12 +183,14 @@
    Data loading. The exported files call NV.setModel(...) and NV.addField(...).
    ====================================================================================== */
 const NV = { model: null, fields: {} };
-NV.setModel = (m) => { NV.model = m; };
-NV.addField = (f) => { NV.fields[f.id] = f; };
+NV.setModel = (m) => { m.solvedIds = [].concat(m.solvedIds); NV.model = m; }; // MATLAB encodes a single solved ID as a number.
+NV.addField = (f) => { // Reject a field from a different FEM run during a refresh.
+  if (!f.source || f.source === NV.model.source) NV.fields[f.id] = f; // Support earlier reference exports.
+};
 
 const urlParams = new URLSearchParams(location.search);
-const PATIENT = urlParams.get('patient') || 'UA01';
-const DATA_DIR = urlParams.get('data') || `../results/viewer/${PATIENT}/`;
+const PATIENT = urlParams.get('patient') || 'Cuff60Preview';
+let DATA_DIR = urlParams.get('data') || `../results/viewer/${PATIENT}/`;
 
 function loadScript(src) {
   return new Promise((resolve, reject) => {
@@ -258,10 +267,11 @@ const Q_INFO = {
   V: { name: 'Potential V', short: 'V' },
   E: { name: 'Electric field |E|', short: '|E|' },
   J: { name: 'Current density |J|', short: '|J|' },
+  A: { name: 'Activating function', short: 'AF' },
 };
 const state = {
-  siteId: null, heatOn: false, quantity: 'V', cmap: 'turbo', current_uA: 1,
-  lo: { V: 0.25, E: 0.60, J: 0.60 }, hi: { V: 1, E: 1, J: 1 }, glow: 2, pulse: false,
+  siteId: null, heatOn: false, quantity: 'A', cmap: 'turbo', current_uA: 1,
+  lo: { V: 0.25, E: 0.60, J: 0.60, A: 0.50 }, hi: { V: 1, E: 1, J: 1, A: 1 }, glow: 2, pulse: false,
   cut: 'none', cutZ: 0, cutAngle: 90, cutOffset: 0, flip: false, keepContacts: true,
   show: { nerve: true, fascicles: true, cuff: true, contacts: true, labels: true }, fullLength: false,
   intensity: 0,
@@ -273,6 +283,7 @@ const NERVE_COLOUR = '#5fd4ff';
 const CUFF_COLOUR = '#8fa3b8';
 
 let renderer, scene, camera, controls, model, M;
+let cuffProfiles; // Hold the two inspection contours in nerve coordinates.
 let focusTarget = null;                   // orbit centre the view is moving to (world coordinates)
 let volumeMesh, sliceMesh, ringGroup, labelGroup;
 const shellMeshes = { nerve: [], fascicles: [], cuff: [] };
@@ -282,6 +293,7 @@ const texCache = {};                      // `${id}:${q}` -> Data3DTexture
 /* ======================================================================================
    Start.
    ====================================================================================== */
+let fieldNote = ''; // Reason why stimulation is unavailable, shown on the disabled button.
 (async function start() {
   try {
     await loadScript(DATA_DIR + 'geometry.js');
@@ -292,7 +304,39 @@ const texCache = {};                      // `${id}:${q}` -> Data3DTexture
     document.getElementById('subtitle').textContent = 'no data';
     return;
   }
+  if (PATIENT === 'Cuff60Preview' && !urlParams.has('data')) { // Let old and new personal links use fields only for the geometry on screen.
+    const preview = NV.model; // Keep the latest atlas available while a new solve is running.
+    const solvedDir = '../results/viewer/Cuff60/'; // Locate the full personal FEM export.
+    try {
+      await loadScript(solvedDir + 'geometry.js'); // Read the solved geometry before loading any field.
+      const solved = NV.model; // Compare anatomy, lead trajectories and every contact pose.
+      const sameShape = ['nerveLength','cuff','fascicles','shellTheta','contactTransition','shellZ','shellR','insertionSegments','leadWidth','leadThickness'].every(k => JSON.stringify(solved[k]) === JSON.stringify(preview[k])); // Match both the tissue and device.
+      const pose = ({id,type,centre,n,w,sideXY,sideZ,thickness}) => [id,type,centre,n,w,sideXY,sideZ,thickness]; // Omit electrical results from the pose check.
+      const sameSites = JSON.stringify(solved.sites.map(pose)) === JSON.stringify(preview.sites.map(pose)); // Compare the contacts in source order.
+      if (sameShape && sameSites && solved.solvedIds.length) { // Keep matching field files and the latest geometric contact annotations.
+        DATA_DIR=solvedDir; solved.sites.forEach((s,i)=>{ if(preview.sites[i].contact) s.contact=preview.sites[i].contact; }); // Preserve measurement provenance on solved pads.
+      } // Use only matching solved contacts.
+      else { NV.model = preview; fieldNote = 'The saved fields do not match the current geometry. Run start_nerve to recompute them.'; } // Keep the latest geometry available until matching fields exist.
+    } catch { NV.model = preview; fieldNote = 'No solved fields found in results/viewer/Cuff60. Run start_nerve to compute them.'; } // A first geometry-only run can precede the full FEM export.
+  }
   M = NV.model;
+  if (!M.solvedIds.length) { // Keep the stimulation control discoverable during a geometry-only review.
+    for (const child of $('btnStim').parentElement.children) { // Hide field settings until matching data exist.
+      if (child.tagName !== 'H3' && child.id !== 'btnStim') child.style.display = 'none'; // Retain the heading and status button.
+    }
+    $('btnStim').disabled = true; // A geometric preview cannot supply a field.
+    $('btnStim').title = fieldNote || 'Reload after the matching FEM fields have been computed.'; if (fieldNote) { console.warn(fieldNote); document.getElementById('subtitle').textContent = fieldNote; } // Explain when the control becomes available.
+  }
+  if(M.patient.id==='Cuff60'){
+    const links=document.createElement('div'); // Make the local pad indentation inspectable at micrometre scale.
+    for(const [label,file] of [['Eight sections',M.solvedIds.length?'all_stations_deflect.png':'figura2_equilibrio.png'],['Cuff contact detail','local_cuff_deflect.png']]){
+      const a=document.createElement('a'); a.textContent=label; a.href='../results/3d_preview/'+file; // Link the matching MATLAB figure.
+      a.target='_blank'; a.rel='noopener'; a.style.color='#9bccff'; a.style.marginRight='12px'; links.append(a); // Keep the 3D orientation when opening the detail.
+    }
+    const gallery=document.createElement('a'); gallery.href='figure.html'; gallery.textContent='Figure gallery'; gallery.style.color='#9bccff'; links.prepend(gallery,document.createTextNode(' · ')); // Open the personal geometry review sheet.
+    const meshLink=document.createElement('a'); meshLink.href='mesh.html'; meshLink.textContent='3D mesh'; meshLink.style.color='#9bccff'; if(M.sites.some(s=>s.meshContact)) links.append(meshLink);
+    document.getElementById('title').append(links); // Place the anatomical figures next to the personal case name.
+  }
   VIEW_HALF_ZONE = Math.max(-M.grid.z0, M.grid.z0 + (M.grid.nz - 1) * M.grid.dz) + M.grid.dz / 2;
   const testCanvas = document.createElement('canvas');
   if (!testCanvas.getContext('webgl2')) {
@@ -307,7 +351,7 @@ const texCache = {};                      // `${id}:${q}` -> Data3DTexture
   const P = (k) => urlParams.get(k);
   const askedSite = Number(P('site'));
   const first = M.solvedIds.includes(askedSite) ? askedSite : (M.solvedIds.includes(2) ? 2 : M.solvedIds[0]);
-  if (['V', 'E', 'J'].includes(P('q'))) state.quantity = P('q');
+  if (['V', 'E', 'J', 'A'].includes(P('q'))) state.quantity = P('q');
   if (P('cmap') === 'inferno') state.cmap = 'inferno';
   if (P('z') !== null) state.cutZ = Number(P('z'));
   if (P('flip') === '1') state.flip = true;
@@ -316,9 +360,11 @@ const texCache = {};                      // `${id}:${q}` -> Data3DTexture
   setCut(['transverse', 'longitudinal'].includes(P('cut')) ? P('cut') : 'none');
   if (P('angle') !== null) state.cutAngle = Number(P('angle'));
   if (P('offset') !== null) state.cutOffset = Number(P('offset'));
-  if (P('heat') === '1') { state.heatOn = true; ramp = 1; }   // start already on, no fade-in
+  if (P('heat') === '1' && NV.fields[first]) { state.heatOn = true; ramp = 1; }   // start already on, no fade-in
   resetView();
   updateAll();
+  const requestedCuff=M.sites.find(s=>s.type==='cuff' && s.id===Number(P('cuff'))); // Resolve an optional deep link to a pad inspection.
+  if(requestedCuff && M.shellTheta){ if(P('wall')==='inside') $('cuffView').value='inside'; inspectCuff(requestedCuff); } // Start at the finite pad when opening the figure gallery link.
   renderer.setAnimationLoop(animate);
 })();
 
@@ -328,7 +374,7 @@ const texCache = {};                      // `${id}:${q}` -> Data3DTexture
 function initScene() {
   const canvas = document.getElementById('c');
   renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio,M.solvedIds.length ? 2 : 1)); // Reduce preview load on the laptop.
   renderer.setSize(window.innerWidth, window.innerHeight, false);
   renderer.setClearColor(0x000000, 1);
   renderer.localClippingEnabled = true;
@@ -366,8 +412,83 @@ function initScene() {
 
 // Default view: the whole drawn range, from the front-left and slightly above. With a contact
 // selected (and not in full-length mode), a closer view centred on its station.
+function clearCuffInspection() { // Release geometry when leaving a pad close-up.
+  if (!cuffProfiles) return; // The ordinary station view needs no cleanup.
+  camera.up.set(0,1,0); $('cuffViewLabel').hidden=true; $('interfaceLabel').hidden=true; // Restore the anatomical overview controls.
+  camera.clearViewOffset(); document.body.classList.remove('inspectCuff'); // Restore the ordinary viewport and colour bar.
+  model.remove(cuffProfiles); // Detach both profiles before changing the camera.
+  cuffProfiles.children.forEach(line => { line.geometry.dispose(); line.material.dispose(); }); // Free the small overlay buffers.
+  cuffProfiles=null; updateAll(); $('cuffReadout').textContent=''; $('cuffZoom').value=''; // Reset the inspection controls.
+}
+
+function inspectCuff(site) { // Zoom onto the actual inner face while preserving the native spatial scale.
+  clearCuffInspection(); // Replace the previous inspection if present.
+  if (state.heatOn) toggleHeat(false); // Enter geometry inspection from a live stimulation view.
+  state.cutZ=site.centre[2]; setCut('transverse'); // Centre the section on the pad.
+  const j=M.shellZ.reduce((best,z,i)=>Math.abs(z-state.cutZ)<Math.abs(M.shellZ[best]-state.cutZ)?i:best,0); // Select a ring inside the flat footprint.
+  const centre=new THREE.Vector3(...site.centre), n=new THREE.Vector3(...site.n).normalize(); // Resolve the pad normal in the anatomical frame.
+  centre.addScaledVector(n,-site.thickness/2); // Focus on the contact face rather than the centre of its volume.
+  cuffProfiles=new THREE.Group(); cuffProfiles.userData.z=state.cutZ; // Keep the overlay tied to this station.
+  const base=M.shellR[0], fit=M.shellR[j]; // Read the native end ring and contacted ring from MATLAB.
+  const points=M.shellTheta.slice(0,-1).map((a,i)=>({a,i,d:Math.atan2(Math.sin(a-Math.atan2(centre.y,centre.x)),Math.cos(a-Math.atan2(centre.y,centre.x)))}))
+    .filter(p=>Math.abs(p.d)<3*site.sideXY/centre.clone().setZ(0).length()).sort((a,b)=>a.d-b.d); // Keep a continuous arc across the local contact.
+  const orientation=$('cuffView').value, axis=new THREE.Vector3(0,0,1), tangent=new THREE.Vector3(-n.y,n.x,0); // Use pad-relative views independent of its angular position.
+  const solid=orientation==='oblique' || orientation==='inside'; // Use the same contacted wall for both viewing directions.
+  const centreRay=points.reduce((a,b)=>Math.abs(a.d)<Math.abs(b.d)?a:b).i; // Select the centreline for the axial profile.
+  const levels=M.shellZ.map((z,i)=>({z,i})).filter(row=>Math.abs(row.z-state.cutZ)<=site.sideZ/2+M.contactTransition[1]+1e-8); // Include the axial return on both sides.
+  const xyz=[],tri=[]; // Collect the local surface and draw it at the original anatomical scale.
+  levels.forEach(({z,i},k)=>points.forEach(({a,i:col},l)=>{ // Sample the actual export under and around this pad.
+    const r=M.shellR[i][col]; xyz.push(r*Math.cos(a),r*Math.sin(a),z); // Use the finite contacted tissue contour.
+    const v=k*points.length+l; if(k && l) tri.push(v-points.length-1,v-points.length,v,v-points.length-1,v,v-1); // Join adjacent rings.
+  }));
+  const skin=new THREE.BufferGeometry(); skin.setAttribute('position',new THREE.Float32BufferAttribute(xyz,3)); skin.setIndex(tri); skin.computeVertexNormals(); // Form the inspected epineurial patch.
+  const tissue=new THREE.Mesh(skin,new THREE.MeshStandardMaterial({color:0xe3c39a,roughness:1,side:THREE.DoubleSide})); tissue.visible=solid; cuffProfiles.add(tissue); // Show the solid contact footprint in the oblique view.
+  for (const [radii,material] of [[fit,new THREE.LineBasicMaterial({color:0x43c8ef})],[base,new THREE.LineDashedMaterial({color:0xffffff,dashSize:0.009,gapSize:0.006})]]) { // Match the measured and reference contours to their keys.
+    const vertices=orientation==='long' ? levels.map(({z,i})=>new THREE.Vector3(Math.cos(M.shellTheta[centreRay]),Math.sin(M.shellTheta[centreRay]),0).multiplyScalar(radii===fit?M.shellR[i][centreRay]:base[centreRay]).setZ(z)) : points.map(({a,i})=>new THREE.Vector3(radii[i]*Math.cos(a),radii[i]*Math.sin(a),state.cutZ)); // Draw the original ring coordinates without exaggeration.
+    if(radii===fit && !solid){ // Fill the nerve beneath the real profile in each section.
+      const edge=[],faces=[];
+      vertices.forEach((v,k)=>{edge.push(...v.toArray(),...v.clone().addScaledVector(n,-site.sideXY).toArray()); if(k){const i=2*k; faces.push(i-2,i-1,i,i,i-1,i+1);}});
+      const section=new THREE.BufferGeometry(); section.setAttribute('position',new THREE.Float32BufferAttribute(edge,3)); section.setIndex(faces);
+      cuffProfiles.add(new THREE.Mesh(section,new THREE.MeshBasicMaterial({color:0xe3c39a,side:THREE.DoubleSide})));
+    }
+    const line=new THREE.Line(new THREE.BufferGeometry().setFromPoints(vertices),material); // Project this profile in the current camera view.
+    material.depthTest=false; material.transparent=true; material.depthWrite=false; line.renderOrder=15; line.computeLineDistances(); line.visible=!solid; cuffProfiles.add(line); // Keep both traces readable against the pad.
+  }
+  cuffProfiles.userData.pad=site.id; document.body.classList.add('inspectCuff'); // Identify the inspected pad independently of the stimulus contact.
+  if(site.meshContact && orientation==='oblique'){ // Inspect the actual conducting interface from the solved tetrahedra.
+    const g=new THREE.BufferGeometry(); g.setAttribute('position',new THREE.Float32BufferAttribute(site.meshContact.xyz.flat(),3)); g.setIndex(site.meshContact.tri.flat()); // Keep the solver coordinates in millimetres.
+    const wire=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color:0x35205a,wireframe:true,transparent:true,depthTest:false,depthWrite:false})); // Draw through the pad so its underside can be inspected.
+    wire.userData.contactWire=true; wire.visible=$('interfaceWire').checked; // Start with the solid rigid pad resting on the fitted nerve.
+    $('interfaceLabel').hidden=false; $('interfaceWire').onchange=()=>{wire.userData.contactWire=true; wire.visible=$('interfaceWire').checked;}; // Reveal the hidden interface on demand.
+    wire.renderOrder=16; cuffProfiles.add(wire); // Reveal the shared face without moving either surface apart.
+  }
+  const panel=$('panel').getBoundingClientRect(); // Read the space occupied by the controls.
+  camera.setViewOffset(innerWidth,innerHeight,innerWidth>720?(innerWidth-panel.left)/2:0,innerWidth>720?0:(innerHeight-panel.top)/2,innerWidth,innerHeight); // Frame the contact in the visible canvas.
+  model.add(cuffProfiles); focusTarget=null; controls.target.copy(model.localToWorld(centre.clone())); // Anchor orbit controls on the selected interface.
+  const sight=orientation==='long'?tangent:orientation==='cross'?axis:orientation==='inside'?n.clone().negate().addScaledVector(tangent,0.35).addScaledVector(axis,0.3).normalize():n.clone().multiplyScalar(0.9).addScaledVector(tangent,0.75).addScaledVector(axis,0.85).normalize(); // Face the two physical sections or look down onto the footprint.
+  camera.up.copy(n.clone().transformDirection(model.matrixWorld)); // Keep the outward nerve normal upwards in each inspection view.
+  camera.position.copy(model.localToWorld(centre.clone().addScaledVector(sight,Math.max(site.sideXY,site.sideZ)*4.6))); controls.update(); // Start end-on, close enough to see micrometres.
+  const i=points.reduce((a,b)=>Math.abs(a.d)<Math.abs(b.d)?a:b).i; // Read the central ray for this orientation.
+  $('cuffReadout').textContent='White dashed: native outline · Cyan: contacted nerve'; // Explain the local overlay in physical units.
+  if(orientation==='oblique') $('cuffReadout').textContent='Violet: rigid pad · Sand: epineurium · '+site.sideXY+' × '+site.sideZ+' × '+site.thickness+' mm'; // Report the three physical dimensions in the solid view.
+  if(orientation==='inside') $('cuffReadout').textContent='Epineurium viewed from within the nerve · flat beneath the contact, curved on either side';
+  if(site.contact){ // Explain whether the local geometry was prescribed or fitted.
+    const fit=site.contact.measured?'Measured centre indentation':'Assumed full contact'; // Avoid interpreting an imposed displacement as a pressure prediction.
+    $('cuffReadout').textContent+=' · '+fit+' · '+site.contact.depth_um.toFixed(2)+' µm · footprint '+site.contact.area_mm2.toFixed(3)+' mm²'; // Read the same contact geometry as MATLAB.
+  }
+  if(site.meshContact) $('cuffReadout').textContent+=' · FEM interface '+site.meshContact.area_mm2.toFixed(3)+' mm² ('+site.meshContact.tri.length+' shared triangles)'; // Distinguish verified mesh area from geometric area.
+  $('cuffViewLabel').hidden=false; $('cuffView').onchange=()=>inspectCuff(site); // Switch anatomical plane without selecting the pad again.
+  $('cuffZoom').value=String(site.id); updateCut(); // Apply clipping to the full contact footprint.
+}
+
 function resetView() {
+  clearCuffInspection(); // Return to the uncluttered anatomy view.
   focusTarget = null;
+  if(model && M.patient.id==='Cuff60' && state.cut==='transverse' && !state.fullLength){
+    const centre=model.localToWorld(new THREE.Vector3(0,0,state.cutZ)); // Centre the camera on the selected physical insertion.
+    camera.position.copy(model.localToWorld(new THREE.Vector3(0,0,state.cutZ+7))); // Begin with the front view from the drawing.
+    controls.target.copy(centre); controls.update(); return; // Keep mouse rotation and zoom available.
+  }
   const site = M && state.siteId != null ? M.sites.find((s) => s.id === state.siteId) : null;
   const close = site && !state.fullLength;
   const zHalf = state.fullLength && M ? M.nerveLength / 2 : VIEW_HALF_ZONE;
@@ -426,24 +547,55 @@ function tube(r, x, y, z0, z1, segments = 128) {
   return g;
 }
 
+function personalShell(rings, levels) { // Build the smooth contact-fit surface from the exported MATLAB rings.
+  const xyz = [], triangles = []; // Collect vertices and face indices.
+  const count = rings[0].length - 1; // Omit the duplicated closing point in each ring.
+  rings.forEach((radii, j) => { // Read one longitudinal level.
+    for (let i = 0; i < count; i++) { // Sample the full circumference.
+      const angle = M.shellTheta ? M.shellTheta[i] : 2 * Math.PI * i / count; // Match MATLAB's angular samples.
+      xyz.push(radii[i] * Math.cos(angle), radii[i] * Math.sin(angle), levels[j]); // Convert polar coordinates to millimetres.
+      if (j === 0) continue; // The first ring has no previous strip.
+      const a = (j-1)*count+i, b = (j-1)*count+(i+1)%count; // Identify neighbouring vertices on the previous ring.
+      triangles.push(a,b,b+count,a,b+count,a+count); // Join the rings with outward-facing triangles.
+    }
+  });
+  const geometry = new THREE.BufferGeometry(); // Create the renderable nerve shell.
+  geometry.setAttribute('position',new THREE.Float32BufferAttribute(xyz,3)); // Upload all spatial coordinates.
+  geometry.setIndex(triangles); // Connect the surface triangles.
+  geometry.computeVertexNormals(); // Preserve shading of the local deformation.
+  return geometry; // Use the same shell material and controls as the reference viewer.
+}
+
 function buildModel() {
   const R = M.nerveRadius, L = M.nerveLength;
   // nerve and fascicle shells, full length (the view range is set with clipping planes)
-  const nerve = new THREE.Mesh(tube(R, 0, 0, -L / 2, L / 2, 160), glassMaterial(NERVE_COLOUR, 0.025, 0.55));
+  const nerve = new THREE.Mesh(M.shellR ? personalShell(M.shellR,M.shellZ) : tube(R, 0, 0, -L / 2, L / 2, 160), glassMaterial(NERVE_COLOUR, 0.025, 0.55));
   nerve.renderOrder = 1;
   model.add(nerve);
   shellMeshes.nerve.push(nerve);
+  if(M.shellR){
+    const lining=new THREE.Mesh(nerve.geometry,new THREE.MeshStandardMaterial({color:0xe3c39a,side:THREE.BackSide,roughness:1})); // The back of the fitted wall occludes exterior hardware from inside.
+    model.add(lining); shellMeshes.nerve.push(lining); // Apply the same cuts and visibility as the nerve.
+  }
   M.fascicles.forEach((f, i) => {
     f.colour = FASC_COLOURS[i % FASC_COLOURS.length];
-    const m = new THREE.Mesh(tube(f.r, f.x, f.y, -L / 2, L / 2, 96), glassMaterial(f.colour, 0.06, 0.75));
+    const outline = tube(1,0,0,-L/2,L/2,96); // Start from a centred unit circle.
+    outline.scale(...(f.axes || [f.r,f.r]),1); // Apply the two transverse semiaxes.
+    outline.rotateZ((f.angle || 0)*Math.PI/180); // Rotate the supplied fascicle outline.
+    outline.translate(f.x,f.y,0); // Position its centre inside the nerve.
+    const m = new THREE.Mesh(outline, glassMaterial(f.colour, 0.06, 0.75));
     m.renderOrder = 1;
     model.add(m);
     shellMeshes.fascicles.push(m);
   });
   // cuff: inner and outer wall + end annuli
   const Lc = M.cuff.length, Rc = R + M.cuff.wall;
-  const cuffMat = glassMaterial(CUFF_COLOUR, 0.02, 0.3);
-  [tube(R + 0.002, 0, 0, -Lc / 2, Lc / 2), tube(Rc, 0, 0, -Lc / 2, Lc / 2)].forEach((g) => {
+  const cuffMat = glassMaterial(M.shellR ? 0x245fe0 : CUFF_COLOUR, 0.02, 0.3);
+  // The personal FEM represents the sleeve as an insulating void. Draw its outer envelope.
+  // A second circular skin at native R would cut through the fitted metal and coincide with the nerve.
+  const cuffSurfaces=[tube(Rc,0,0,-Lc/2,Lc/2)];
+  if(!M.shellR) cuffSurfaces.push(tube(R+0.002,0,0,-Lc/2,Lc/2));
+  cuffSurfaces.forEach((g) => {
     const m = new THREE.Mesh(g, cuffMat);
     m.renderOrder = 1;
     model.add(m);
@@ -462,8 +614,13 @@ function buildModel() {
   const ez = new THREE.Vector3(0, 0, 1);
   M.sites.forEach((s) => {
     const g = new THREE.BoxGeometry(s.thickness, s.sideXY, s.sideZ);
+    if(s.type==='cuff' && s.meshContact && Math.abs(s.meshContact.area_mm2-s.sideXY*s.sideZ)<1e-6){
+      const innerSign=Math.sign(s.n[0]*s.centre[0]+s.n[1]*s.centre[1]); // Determine which local box face points into the nerve.
+      const ids=Array.from(g.index.array), normals=g.attributes.normal; // Use the true pad orientation at every station.
+      g.setIndex(ids.filter(v=>normals.getX(v)*innerSign> -0.99)); // The coincident tissue surface owns the view from inside.
+    }
     const mat = new THREE.MeshStandardMaterial({
-      color: s.solved ? 0xffcc55 : 0x9c7d3a, metalness: 0.75, roughness: 0.3,
+      color: M.shellR ? 0x963af0 : s.solved ? 0xffcc55 : 0x9c7d3a, metalness: 0.75, roughness: 0.3,
       emissive: s.solved ? 0x553300 : 0x1a1000, transparent: true, opacity: 1, depthWrite: true,
     });
     const mesh = new THREE.Mesh(g, mat);
@@ -476,6 +633,24 @@ function buildModel() {
     contactMeshes.push(mesh);
   });
 
+  (M.insertionSegments || []).forEach((segment) => { // Draw one single-entry lead per station.
+    const xyz=[], idx=[]; // Collect ribbon vertices in millimetres and the triangles between successive stations.
+    segment.forEach((p,i)=>{ // Follow every checked sample of the polyline.
+      const a=segment[Math.max(0,i-1)], b=segment[Math.min(i+1,segment.length-1)]; // Estimate the local in-plane tangent.
+      const dx=b[0]-a[0],dy=b[1]-a[1],length=Math.hypot(dx,dy); // Normalize the lateral width direction.
+      for(const [side,face] of [[-1,-1],[1,-1],[1,1],[-1,1]]){ // Place the four substrate corners.
+        const half=side*(M.leadWidth || 0.12)/2; // Read the width used by the route planner.
+        xyz.push(p[0]-dy/length*half,p[1]+dx/length*half,p[2]+face*(M.leadThickness || 0.01)/2); // Form the local rectangular cross section.
+      }
+      if(i>0)for(let k=0;k<4;k++){ // Join adjacent cross sections without extending the lead tip.
+        const a=4*(i-1)+k,b=4*(i-1)+(k+1)%4; idx.push(a,b,b+4,a,b+4,a+4); // Tessellate each side.
+      }
+    });
+    const end=4*(segment.length-1); idx.push(0,2,1,0,3,2,end,end+1,end+2,end,end+2,end+3); // Close both ends.
+    const geom=new THREE.BufferGeometry(); geom.setAttribute('position',new THREE.Float32BufferAttribute(xyz,3)); geom.setIndex(idx); // Create the physical strip.
+    const lead=new THREE.Mesh(geom,new THREE.MeshBasicMaterial({color:0x2968ef,side:THREE.DoubleSide})); // Colour the support blue.
+    model.add(lead); shellMeshes.cuff.push(lead); // Apply the device visibility and cutting-plane controls.
+  });
   buildVolume();
   buildSlice();
   ringGroup = new THREE.Group();
@@ -488,7 +663,7 @@ function buildModel() {
   const p = M.patient;
   document.getElementById('subtitle').innerHTML =
     `Patient ${p.id} (seed ${p.seed}, ${p.level}) · ${M.fascicles.length} fascicles · R = ${R.toFixed(2)} mm · ` +
-    `${M.solvedIds.length} of ${M.sites.length} contacts solved<br>monopolar, return = grounded outer boundary`;
+    `${M.solvedIds.length ? M.solvedIds.length+" of "+M.sites.length+" contacts solved" : "Personal geometry preview · 8 stations"}`;
 }
 
 function viewHalf() { return state.fullLength ? M.nerveLength / 2 : VIEW_HALF_ZONE; }
@@ -497,22 +672,23 @@ function buildRingsAndLabels() {
   ringGroup.clear();
   labelGroup.clear();
   const zv = viewHalf(), R = M.nerveRadius;
-  const circle = (r, x, y, z, colour, opacity) => {
+  const circle = (r, x, y, z, colour, opacity, axes=[r,r], degrees=0) => {
     const pts = [];
     for (let k = 0; k < 128; k++) {
       const a = 2 * Math.PI * k / 128;
-      pts.push(new THREE.Vector3(x + r * Math.cos(a), y + r * Math.sin(a), z));
+      const dx=axes[0]*Math.cos(a), dy=axes[1]*Math.sin(a), phi=degrees*Math.PI/180; // Use the rotated anatomical ellipse.
+      pts.push(new THREE.Vector3(x+dx*Math.cos(phi)-dy*Math.sin(phi), y+dx*Math.sin(phi)+dy*Math.cos(phi), z)); // Store its transverse ring.
     }
     const line = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
       new THREE.LineBasicMaterial({ color: colour, transparent: true, opacity }));
     return line;
   };
   [-zv, zv].forEach((z) => {
-    const nr = circle(R, 0, 0, z, NERVE_COLOUR, 0.8);
+    const nr = circle(R, 0, 0, z, NERVE_COLOUR, 0.8,M.nerveAxes,M.nerveAngle);
     nr.userData.kind = 'nerve';
     ringGroup.add(nr);
     M.fascicles.forEach((f) => {
-      const fr = circle(f.r, f.x, f.y, z, f.colour, 0.9);
+      const fr = circle(f.r, f.x, f.y, z, f.colour, 0.9,f.axes,f.angle);
       fr.userData.kind = 'fascicles';
       ringGroup.add(fr);
     });
@@ -646,19 +822,30 @@ function buildVolume() {
    ====================================================================================== */
 function buildSlice() {
   const { min, max } = gridBox();
-  const fasc = [], cols = [];
+  const fasc = [], cols = [], ellipse = []; // Pack fascicle axes and rotations for the slice shader.
   for (let i = 0; i < 32; i++) {
     const f = M.fascicles[i];
     fasc.push(f ? new THREE.Vector3(f.x, f.y, f.r) : new THREE.Vector3(1e3, 1e3, 0));
+    ellipse.push(f ? new THREE.Vector3(...(f.axes || [f.r,f.r]),(f.angle || 0)*Math.PI/180) : new THREE.Vector3(1,1,0)); // Send each ellipse to the slice shader.
     cols.push(f ? new THREE.Color(f.colour) : new THREE.Color(0, 0, 0));
+  }
+  const pads = M.shellR ? M.sites.filter(s=>s.type==='cuff') : []; // Apply the local faces of the personal device.
+  const padPlanes = [], padWidths = []; // Store outward normals, contact planes, z and half widths.
+  for(let i=0;i<16;i++){ // The device has two external pads at eight stations.
+    const s=pads[i]; // Read the local radial direction.
+    padPlanes.push(s ? new THREE.Vector4(s.n[0],s.n[1],s.centre[0]*s.n[0]+s.centre[1]*s.n[1]-s.thickness/2,s.centre[2]) : new THREE.Vector4()); // Locate the active face.
+    padWidths.push(s ? new THREE.Vector2(s.sideXY/2,s.sideZ/2) : new THREE.Vector2()); // Limit the indentation to the pad.
   }
   const placeholder = volumeMesh.material.uniforms.uData.value;
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uData: { value: placeholder }, uHeat: { value: false }, uIntensity: { value: 0 },
       uBoxMin: { value: min }, uBoxMax: { value: max }, uR: { value: M.nerveRadius },
-      uWall: { value: M.cuff.wall }, uCuffHalf: { value: M.cuff.length / 2 },
+      uShowSleeve: {value:true}, uWall: { value: M.cuff.wall }, uCuffHalf: { value: M.cuff.length / 2 },
       uLo: { value: 0.3 }, uHi: { value: 1 }, uCmap: { value: 0 },
+      uTransition:{value:new THREE.Vector2(...(M.contactTransition || [0,0]))}, // Match the contact shoulders exported by MATLAB.
+      uPadOffset:{value:padPlanes.map((_,i)=>pads[i] ? -pads[i].centre[0]*pads[i].n[1]+pads[i].centre[1]*pads[i].n[0] : 0)},uPadThickness:{value:padPlanes.map((_,i)=>pads[i]?.thickness || 0)},uPadPlanes:{value:padPlanes},uPadWidths:{value:padWidths},uPadCount:{value:pads.length},
+      uEllipse: {value: ellipse}, uNerveAxes: {value: new THREE.Vector3(...(M.nerveAxes || [M.nerveRadius,M.nerveRadius]),(M.nerveAngle || 0)*Math.PI/180)},
       uFasc: { value: fasc }, uFascCol: { value: cols }, uNF: { value: M.fascicles.length },
       uNerveCol: { value: new THREE.Color(NERVE_COLOUR) },
     },
@@ -673,9 +860,16 @@ function buildSlice() {
       varying vec3 vLocal;
       uniform sampler3D uData;
       uniform bool uHeat;
+      uniform bool uShowSleeve;
       uniform float uIntensity, uR, uWall, uCuffHalf, uLo, uHi;
       uniform vec3 uBoxMin, uBoxMax, uNerveCol;
-      uniform vec3 uFasc[32];
+      uniform vec2 uTransition; // Lateral and axial shoulder lengths in millimetres.
+      uniform float uPadOffset[16]; uniform float uPadThickness[16]; uniform vec4 uPadPlanes[16]; uniform vec2 uPadWidths[16]; uniform int uPadCount;
+      uniform vec3 uFasc[32], uEllipse[32], uNerveAxes;
+      float ellipseDistance(vec2 xy,vec3 shape){
+        float c=cos(shape.z), s=sin(shape.z);
+        return (length(vec2(c*xy.x+s*xy.y,-s*xy.x+c*xy.y)/shape.xy)-1.0)*min(shape.x,shape.y);
+      }
       uniform vec3 uFascCol[32];
       uniform int uNF;
       ${GLSL_CMAPS}
@@ -686,16 +880,40 @@ function buildSlice() {
       void main() {
         vec3 p = vLocal;
         float r = length(p.xy);
-        if (r > uR) {
-          if (r < uR + uWall && abs(p.z) < uCuffHalf) { gl_FragColor = vec4(0.16, 0.19, 0.23, 1.0); return; }
+        vec2 ray=p.xy/max(r,1e-12); // Resolve the native ellipse along the current radial direction.
+        float c=cos(uNerveAxes.z), sn=sin(uNerveAxes.z); // Rotate into the anatomical principal axes.
+        float radius=1.0/max(length(vec2(c*ray.x+sn*ray.y,-sn*ray.x+c*ray.y)/uNerveAxes.xy),1e-12); // Native radial distance in mm.
+        for(int k=0;k<16;k++){
+          if(k>=uPadCount)break;
+          vec4 pad=uPadPlanes[k]; vec2 w=uPadWidths[k];
+          float facing=dot(ray,pad.xy); // Limit contact to the side of the nerve facing the pad.
+          if(facing<=0.0) continue; // The opposite pad has its own footprint.
+          float cap=pad.z/facing; // Intersect this ray with the rigid face.
+          vec2 beyond=vec2(abs(cap*dot(ray,vec2(-pad.y,pad.x))-uPadOffset[k]),abs(p.z-pad.w))-w; // Distances past the two half-widths.
+          vec2 weight=1.0-smoothstep(vec2(0.0),max(uTransition,vec2(1e-8)),beyond); // Blend both shoulders as in cuffDeformedRadius.
+          radius-=max(0.0,radius-cap)*weight.x*weight.y; // Deform the epineurial boundary only near this pad.
+        }
+        float contour=r-radius; // Signed distance along the ray to the contacted nerve.
+        if (contour > 0.0) {
+          // The insulating region extends from the fitted tissue surface to the outer cuff envelope.
+          if (uShowSleeve && (uPadCount>0 || r>=uR) && r<uR+uWall && abs(p.z)<uCuffHalf) {
+            for(int k=0;k<16;k++){
+              if(k>=uPadCount) break;
+              vec4 pad=uPadPlanes[k];vec2 widths=uPadWidths[k];
+              float normalDepth=dot(p.xy,pad.xy)-pad.z;
+              if(normalDepth>=0.0 && normalDepth<=uPadThickness[k] &&
+                 abs(dot(p.xy,vec2(-pad.y,pad.x))-uPadOffset[k])<=widths.x && abs(p.z-pad.w)<=widths.y) discard;
+            }
+            gl_FragColor=vec4(0.16,0.19,0.23,1.0);return;
+          }
           discard;
         }
         vec3 col = vec3(0.07, 0.09, 0.11);     // epineurium
-        float edge = outline(uR - r);
+        float edge = outline(contour);
         vec3 edgeCol = uNerveCol;
         for (int i = 0; i < 32; i++) {
           if (i >= uNF) break;
-          float dd = length(p.xy - uFasc[i].xy) - uFasc[i].z;
+          float dd = ellipseDistance(p.xy-uFasc[i].xy,uEllipse[i]);
           if (dd < 0.0) col = uFascCol[i] * 0.32;   // endoneurium of fascicle i
           float e = outline(dd);                     // perineurium
           if (e > edge) { edge = e; edgeCol = uFascCol[i]; }
@@ -765,11 +983,23 @@ function updateCut() {
     sliceMesh.geometry.dispose();
     sliceMesh.geometry = geo;
   }
-  sliceMesh.visible = on;
+  const previewSlab=M.patient.id==='Cuff60' && !state.heatOn && state.cut==='transverse'; // Isolate one device station for geometry review.
+  if(previewSlab){
+    shellPlanes.length=0; // Keep both surfaces of the selected station visible.
+    const pad=cuffProfiles && M.sites.find(s=>s.id===cuffProfiles.userData.pad); // Match the clipping slab to the finite pad and its axial shoulder.
+    const half=pad ? pad.sideZ/2+M.contactTransition[1] : 0.13; // Keep the original thin section for the lead overview.
+    shellPlanes.push(toWorld(new THREE.Vector3(0,0,1),-state.cutZ+half),toWorld(new THREE.Vector3(0,0,-1),state.cutZ+half)); // Clip a 0.26 mm slab centred on the pads.
+  }
+  if(cuffProfiles){ // Isolate the selected tissue interface from the transparent full cuff walls.
+    [...shellMeshes.nerve,...shellMeshes.fascicles,...shellMeshes.cuff].forEach(mesh=>mesh.visible=false); // The local mesh depicts the contacted nerve in the footprint view.
+    contactMeshes.forEach(mesh=>mesh.visible=mesh.userData.site.id===cuffProfiles.userData.pad); // Show only the pad under inspection.
+    ringGroup.children.forEach(line=>line.visible=false); labelGroup.visible=false; // Keep distant section outlines out of the magnified view.
+  }
+  sliceMesh.visible = on && !previewSlab; // Allow the lead in the open slab to remain visible.
   [...shellMeshes.nerve, ...shellMeshes.fascicles, ...shellMeshes.cuff].forEach((m) => {
     m.material.clippingPlanes = shellPlanes;
   });
-  const contactPlanes = on && !state.keepContacts ? shellPlanes.slice(planes.length) : [];
+  const contactPlanes = previewSlab ? shellPlanes : on && !state.keepContacts ? shellPlanes.slice(planes.length) : [];
   contactMeshes.forEach((m) => { m.material.clippingPlanes = contactPlanes; });
   ringGroup.children.forEach((l) => { l.material.clippingPlanes = on ? shellPlanes.slice(planes.length) : []; });
 }
@@ -780,7 +1010,8 @@ function updateCut() {
 async function ensureField(id) {
   if (!NV.fields[id]) {
     document.getElementById('cbInfo').textContent = 'loading…';
-    await loadScript(`${DATA_DIR}AS${id}.js`);
+    await loadScript(`${DATA_DIR}AS${id}.js?run=${encodeURIComponent(M.exported)}`); // Bypass cached fields from an older solve.
+    if (!NV.fields[id]) throw new Error('Field does not match the loaded geometry.'); // Require a verified contact before display.
   }
   return NV.fields[id];
 }
@@ -808,6 +1039,7 @@ async function selectSite(id) {
   const s = M.sites.find((x) => x.id === id);
   if (!s || !s.solved) return;
   state.siteId = id;
+  if(state.cut==='transverse') state.cutZ=s.centre[2]; // Follow the activated contact when changing stations.
   document.getElementById('selSite').value = String(id);
   // rotate around the selected contact's station: move the orbit centre to (0, 0, z) of the nerve
   focusTarget = model.localToWorld(new THREE.Vector3(0, 0, s.centre[2]));
@@ -865,13 +1097,18 @@ function initUI() {
   $('cbFlip').addEventListener('change', () => { state.flip = $('cbFlip').checked; updateAll(); });
   $('cbElec').addEventListener('change', () => { state.keepContacts = $('cbElec').checked; updateAll(); });
 
+  if (M.shellTheta) { // Offer close inspection on geometry that resolves the finite pad edges.
+    $('cuffZoomLabel').hidden=false; // Expose the personal-device control.
+    for(const s of M.sites.filter(s=>s.type==='cuff')) $('cuffZoom').add(new Option('AS'+s.id+' · station '+s.section,String(s.id))); // List the external contacts in device order.
+    $('cuffZoom').onchange=()=>{const s=M.sites.find(s=>s.id===Number($('cuffZoom').value)); if(s) inspectCuff(s); else resetView();}; // Jump directly to the chosen contact.
+  }
   const stations = [...new Set(M.sites.map((s) => s.section))].sort((a, b) => a - b);
   stations.forEach((sec) => {
     const z = M.sites.find((s) => s.section === sec).centre[2];
     const b = document.createElement('button');
     b.textContent = `${sec > 0 ? '+' : ''}${sec}`;
     b.title = `station ${sec}, z = ${z.toFixed(1)} mm`;
-    b.addEventListener('click', () => { state.cutZ = z; setCut('transverse'); });
+    b.addEventListener('click', () => { state.cutZ = z; setCut('transverse'); if(M.patient.id==='Cuff60') resetView(); });
     $('stations').appendChild(b);
   });
 
@@ -897,6 +1134,8 @@ function toggleHelp(force) {
 }
 
 function toggleHeat(force) {
+  if (!M.solvedIds.length) return; // Keyboard and button require a solved field.
+  if(cuffProfiles && force!==false) resetView(); // Restore the nerve and field slice when stimulating after pad inspection.
   state.heatOn = force === undefined ? !state.heatOn : force;
   updateAll();
 }
@@ -940,6 +1179,7 @@ function onKey(e) {
   else if (k === '1') setQuantity('V');
   else if (k === '2') setQuantity('E');
   else if (k === '3') setQuantity('J');
+  else if (k === '4') setQuantity('A');
   else if (k === 'c') setCut({ none: 'transverse', transverse: 'longitudinal', longitudinal: 'none' }[state.cut]);
   else if (k === 'f') { state.flip = !state.flip; updateAll(); }
   else if (k === 'p') { state.pulse = !state.pulse; $('cbPulse').checked = state.pulse; }
@@ -1002,8 +1242,13 @@ function initPicking() {
    Updates.
    ====================================================================================== */
 function updateAll() {
+  if(cuffProfiles && (state.cut!=='transverse' || state.cutZ!==cuffProfiles.userData.z || state.heatOn)) clearCuffInspection(); // Drop the overlay when switching away from its anatomical section.
+  const field = state.siteId != null ? NV.fields[state.siteId] : null;
+  // a field exported before a quantity existed (e.g. no activating function): fall back to V
+  if (field && !field.data[state.quantity]) state.quantity = 'V';
+  document.querySelectorAll('#segQ button').forEach((b) => { b.disabled = !!field && !field.data[b.dataset.q]; });
   const q = state.quantity;
-  const haveField = state.siteId != null && NV.fields[state.siteId];
+  const haveField = !!field;
   const tex = haveField ? fieldTexture(state.siteId, q) : null;
   const vu = volumeMesh.material.uniforms, su = sliceMesh.material.uniforms;
   if (tex) { vu.uData.value = tex; su.uData.value = tex; }
@@ -1012,11 +1257,11 @@ function updateAll() {
   vu.uHi.value = su.uHi.value = state.hi[q];
   vu.uCmap.value = su.uCmap.value = cm;
   vu.uOpacity.value = state.glow;
-  su.uHeat.value = !!tex;
+  su.uHeat.value = !!tex; su.uShowSleeve.value=state.show.cuff; // Respect cuff visibility in the slice as well as in 3D.
 
   // panel
   $('btnStim').classList.toggle('on', state.heatOn);
-  $('btnStim').innerHTML = state.heatOn ? '■ Stop <kbd>Space</kbd>' : '▶ Stimulate <kbd>Space</kbd>';
+  $('btnStim').innerHTML = !M.solvedIds.length ? 'Stimulate · awaiting matching FEM fields' : state.heatOn ? '■ Stop <kbd>Space</kbd>' : '▶ Stimulate <kbd>Space</kbd>';
   document.querySelectorAll('#segQ button').forEach((b) => b.classList.toggle('on', b.dataset.q === q));
   document.querySelectorAll('#segCut button').forEach((b) => b.classList.toggle('on', b.dataset.c === state.cut));
   $('rLo').value = state.lo[q];  $('vLo').textContent = state.lo[q].toFixed(2);
@@ -1064,7 +1309,10 @@ function updateColorbar() {
     return info.lo * Math.pow(info.hi / info.lo, t) * I;
   };
   const unit = info.unit.replace('uA', 'µA').replace('^2', '²');
-  $('cbName').innerHTML = `<b>${Q_INFO[q].name}</b> [${unit}]${info.scale === 'log' ? ' · log scale' : ''}`;
+  const extra = q === 'A'
+    ? `<br><span style="color:var(--muted)">cathodic pulse · depolarisation only · Δz = ${info.spacing_mm} mm · endoneurium only</span>`
+    : '';
+  $('cbName').innerHTML = `<b>${Q_INFO[q].name}</b> [${unit}]${info.scale === 'log' ? ' · log scale' : ''}${extra}`;
   $('cbInfo').textContent = `AS ${f.id} · ${I} µA${state.heatOn ? '' : ' · off'}`;
   const cv = $('cbCanvas'), ctx = cv.getContext('2d');
   const img = ctx.createImageData(cv.width, cv.height);
@@ -1103,7 +1351,9 @@ function animate() {
   // active contact glows with the stimulus
   contactMeshes.forEach((m) => {
     const s = m.userData.site, mat = m.material;
-    if (s.id === state.siteId) {
+    if (cuffProfiles && cuffProfiles.userData.pad===s.id) {
+      mat.emissive.setHex(0x8b28d8); mat.emissiveIntensity=0.9; // Match the inspected electrode to the violet pad in the atlas.
+    } else if (s.id === state.siteId) {
       mat.emissive.setRGB(0.25 + 0.75 * k, 0.6 + 0.4 * k, 1.0);
       mat.emissiveIntensity = 0.35 + 1.4 * k;
     } else {
@@ -1124,6 +1374,16 @@ function animate() {
   controls.update();
   camLocal.copy(camera.position);
   model.worldToLocal(camLocal);
+  if(cuffProfiles){
+    const pad=M.sites.find(s=>s.id===cuffProfiles.userData.pad); // Resolve visibility against the actual contacted plane while orbiting.
+    const normal=new THREE.Vector3(...pad.n).normalize();
+    const outside=normal.dot(camLocal)>normal.x*pad.centre[0]+normal.y*pad.centre[1]-pad.thickness/2;
+    if(['oblique','inside'].includes($('cuffView').value)){
+      const metal=contactMeshes.find(mesh=>mesh.userData.site.id===pad.id); // Suppress coplanar edge pixels behind the opaque epineurial face.
+      metal.visible=outside; // Restore the exterior pad automatically when orbiting back around the tissue.
+    }
+    cuffProfiles.children.forEach(obj=>{if(obj.userData.contactWire)obj.visible=outside && $('interfaceWire').checked;}); // Keep the inspection overlay outside the tissue.
+  }
   volumeMesh.material.uniforms.uCam.value.copy(camLocal);
   renderer.render(scene, camera);
 }

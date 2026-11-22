@@ -35,7 +35,7 @@
 % Units: SI inside the code (m, S/m, A, V); mm only in the plots.
 % Run: press Run in the editor, or type main_pipeline (the script adds the project paths itself).
 
-clear; close all; clc;
+clearvars -except personalAnatomy personalStation; close all; clc;
 mm = 1e-3;
 root   = fileparts(fileparts(fileparts(mfilename('fullpath'))));   % project root
 addpath(root);  setup_paths;                               % src/, config/ on the path
@@ -74,13 +74,25 @@ S.centre_m(isCuff, 1:2) = S.r_m(isCuff) .* [cosd(S.theta_deg(isCuff)), sind(S.th
 S.curved = isCuff & p.electrode.cuffShape == "conforming";
 S.halfAngle_rad = nan(nS, 1);
 S.halfAngle_rad(S.curved) = (S.sideXY_m(S.curved) / 2) / R;
+if exist('personalStation','var') % Use the requested current geometry for the personal figure series.
+    if ~exist('personalAnatomy','var'), personalAnatomy=quicklook3DParams(); end % Read current geometry on a standalone run.
+    pg=personalStation2D(personalStation,personalAnatomy); p.electrode.cuffShape="flat"; station=personalStation; S=pg.sites; % Replace the reference contact poses.
+    S.curved=false(height(S),1); S.halfAngle_rad=nan(height(S),1); % Keep the rigid pads planar.
+    fasc=pg.f(:,1:3); nFasc=size(fasc,1); R=max(pg.q.geometry.nerveSemiAxes_m); % Use the current anatomical scale and number of fascicles.
+    tPeri=pg.q.geometry.tPeri_m; Rmed=p.domain.outerRadiusFactor*R; % Locate the external return at the original relative distance.
+    outDir=fullfile(root,'results','current2d'); if ~isfolder(outDir),mkdir(outDir);end % Preserve the reference results.
+end % Finish personal setup.
 contactLabel = "AS " + S.id + " (" + string(S.type) + ")";
 
 fprintf('Station %+d (z = %.1f mm): %d contacts, %s, %.0f um thick, cuff contacts %s\n', station, ...
         S.z_m(1) / mm, nS, p.electrode.material, S.thickness_m(1) / 1e-6, p.electrode.cuffShape);
 outlines = contactOutlines(S, R);                          % polygon of each contact [m]
 for k = 1:nS
-    fprintf('   %-18s lies in: %s\n', contactLabel(k), describeTissue(S(k,:), fasc, tPeri, R, tissueName));
+    if exist('pg','var') && S.type(k)=="cuff" % Report the active inner face, not the centre of the metal block outside the nerve.
+        fprintf('   %-18s external pad facing the epineurium\n',contactLabel(k)); % Identify the physical interface.
+    else
+        fprintf('   %-18s lies in: %s\n',contactLabel(k),describeTissue(S(k,:),fasc,tPeri,R,tissueName)); % Preserve the original diagnostic for internal sites.
+    end
 end
 
 
@@ -89,7 +101,7 @@ end
 % (holes). decsg splits the plane into faces; bt says which shapes contain each face.
 % A curved cuff contact is built as (ring R...R+t) * (wedge) - nerve, so that its inner arc is
 % exactly the nerve circle; the helper edges this leaves inside the tissue are then deleted.
-[dl, bt] = crossSectionGeometry(R, Rmed, fasc, tPeri, S);
+if exist('pg','var'), [dl,bt]=personalStationCSG(pg,Rmed,true); else, [dl,bt]=crossSectionGeometry(R,Rmed,fasc,tPeri,S); end % Use the appropriate tissue and pad boundaries.
 g = fegeometry(dl);
 assert(size(bt, 1) == g.NumFaces && g.NumEdges == size(dl, 2), 'Unexpected geometry numbering.');
 [faceTissue, faceFasc] = faceTissues(bt, nFasc);           % 1 endo, 2 peri, 3 epi, 4 muscle
@@ -195,6 +207,7 @@ disp(array2table(round(meanEendo), 'RowNames', cellstr(cfgLabel), 'VariableNames
 
 tag = sprintf('PW6_station%+d', station);
 geo = struct('msh', msh, 'R', R, 'fasc', fasc, 'tPeri', tPeri);
+if exist('pg','var'), geo.personal=pg; p.personalGeometry=pg.q; end % Preserve the anatomy used to draw and solve.
 geo.outlines = outlines;
 plotGeometryAndMesh(geo, S, faceTissue, sprintf('Station %+d (z = %.1f mm)', station, S.z_m(1)/mm), ...
                     fullfile(outDir, tag + "_geometry.png"));
@@ -409,12 +422,14 @@ end
 
 function drawOutlines(geo)
 %DRAWOUTLINES Nerve and perineurium outlines (black) and contacts (red), in mm.
+if isfield(geo,'personal'), drawPersonalStation(geo.personal); else % Overlay the same anatomy used by the selected solver.
 th = linspace(0, 2*pi, 200);
 plot(1e3*geo.R*cos(th), 1e3*geo.R*sin(th), 'k-', LineWidth=0.8);
 for i = 1:size(geo.fasc, 1)
     rO = geo.fasc(i,3) + geo.tPeri;
     plot(1e3*(geo.fasc(i,1) + rO*cos(th)), 1e3*(geo.fasc(i,2) + rO*sin(th)), 'k-', LineWidth=0.5);
 end
+end % Finish the selected anatomical overlay.
 for k = 1:numel(geo.outlines)
     o = geo.outlines{k}([1:end 1], :);
     plot(1e3*o(:,1), 1e3*o(:,2), 'r-', LineWidth=1.5);
@@ -429,7 +444,7 @@ elemTissue = zeros(size(tri, 1), 1);
 for f = 1:numel(faceTissue)
     elemTissue(findElements(msh, "region", "Face", f)) = faceTissue(f);
 end
-figure(Color="w", Position=[40 80 1300 540], Name="Geometry and mesh");
+figure(Theme="light",Color="w", Position=[40 80 1300 540], Name="Geometry and mesh");
 tl = tiledlayout(1, 2, TileSpacing="compact");   title(tl, figTitle, FontWeight="bold");
 nexttile
 patch(Faces=tri, Vertices=xy, FaceVertexCData=col(elemTissue,:), FaceColor="flat", EdgeColor="none");
@@ -458,7 +473,7 @@ function plotMaps(geo, Vdata, Edata, labels, figTitle, fileName)
 msh = geo.msh;   tri = msh.Elements(1:3, :)';   xy = 1e3 * msh.Nodes';
 nC = size(Vdata, 2);
 inNerve = hypot(msh.Nodes(1,:), msh.Nodes(2,:)) <= 1.1 * geo.R;
-figure(Color="w", Position=[60 40 min(1800, 330*nC + 100) 760], Name=figTitle);
+figure(Theme="light",Color="w", Position=[60 40 min(1800, 330*nC + 100) 760], Name=figTitle);
 tl = tiledlayout(2, nC, TileSpacing="compact");   title(tl, figTitle, FontWeight="bold");
 for j = 1:nC
     for row = 1:2
@@ -480,7 +495,7 @@ end
 
 function plotFascicleTable(M, rowLabel, colLabel, figTitle, fileName)
 %PLOTFASCICLETABLE Colour table of M (rows = configurations, columns = fascicles), with values.
-figure(Color="w", Position=[100 100 900 520], Name="Field per fascicle");
+figure(Theme="light",Color="w", Position=[100 100 900 520], Name="Field per fascicle");
 imagesc(M, [0 1]);  colormap(parula);  colorbar;
 for r = 1:size(M, 1)
     for c = 1:size(M, 2)

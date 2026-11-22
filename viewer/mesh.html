@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Median nerve · 3D finite-element mesh</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f4f1;color:#202d37;font:16px system-ui,sans-serif}main{height:100dvh;display:grid;grid-template-rows:auto 1fr}header{background:#fff;padding:15px 22px;border-bottom:1px solid #cad1cf}h1{font-size:20px;margin:0 0 8px}nav{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:center}select,button{font:inherit}a{color:#275e80}p{font-size:14px;margin:8px 0 0}#stage{min-height:0;position:relative}canvas{display:block;width:100%;height:100%}.key{font-weight:600}.key::before{content:"";display:inline-block;width:0.8em;height:0.8em;background:var(--c);margin-right:4px;border-radius:2px}
+</style>
+<main><header><h1>Median nerve · 3D finite-element mesh</h1>
+<nav><label>Region <select id="region"></select></label><label><input type="checkbox" id="cut"> Open epineurium</label><label><input type="checkbox" id="edges" checked> Element edges</label><button id="reset">Reset view</button><a href="index.html?patient=Cuff60Preview&amp;cuff=5">Inspect cuff contact</a><a href="personal.html">Start stimulation</a></nav>
+<p><span class="key" style="--c:#edce98">Epineurium</span> · <span class="key" style="--c:#e98e77">Fascicles</span> · <span class="key" style="--c:#883dc3">Electrodes</span> · <span id="count"></span>. Drag to rotate, scroll to zoom.</p></header><div id="stage"></div></main>
+<script src="vendor/three.min.js"></script><script src="vendor/OrbitControls.js"></script><script src="../results/main3d/Cuff60_mesh.js"></script>
+<script>
+const byId=id=>document.getElementById(id),stage=byId('stage'),data=window.nerveMesh;
+function drawViewer(){
+  const scene=new THREE.Scene();scene.background=new THREE.Color(0xf3f4f1);
+  const camera=new THREE.PerspectiveCamera(38,1,0.01,300), renderer=new THREE.WebGLRenderer({antialias:true});
+  renderer.setPixelRatio(Math.min(devicePixelRatio,2));stage.appendChild(renderer.domElement);
+  const orbit=new THREE.OrbitControls(camera,renderer.domElement), group=new THREE.Group();group.rotation.y=Math.PI/2;scene.add(group);
+  scene.add(new THREE.HemisphereLight(0xffffff,0xa9a49d,0.72));
+  const light=new THREE.DirectionalLight(0xffffff,0.52);light.position.set(1,2,3);scene.add(light);
+  const region=byId('region');region.add(new Option('Whole nerve · 60 mm',0));
+  data.sections.forEach((s,i)=>region.add(new Option('Station '+(s>0?'+':'')+s+' · '+data.centres[i]+' mm',i+1)));
+  region.value='1';byId('count').textContent=data.count.toLocaleString('en-US')+' volume tetrahedra';
+  function buffer(text,Type){const raw=Uint8Array.from(atob(text),c=>c.charCodeAt(0));return new Type(raw.buffer);}
+  function render(){renderer.render(scene,camera);}
+  function frame(){const k=+region.value, z=k?data.centres[k-1]:0;orbit.target.set(z,0,0);const distance=k?6.3:Math.max(60,65/camera.aspect);camera.position.set(z+0.54*distance,0.64*distance,0.8*distance);orbit.update();render();}
+  function geometry(){
+    group.traverse(o=>{if(o.geometry)o.geometry.dispose();if(o.material)o.material.dispose();});group.clear();
+    const view=data.views[+region.value];for(const [part,color] of [[byId('cut').checked?'cut':'t3',0xedce98],['t1',0xe98e77],[byId('cut').checked?'cutMetal':'t5',0x883dc3]]){
+      const g=new THREE.BufferGeometry();g.setAttribute('position',new THREE.BufferAttribute(buffer(view[part].xyz,Float32Array),3));g.setIndex(new THREE.BufferAttribute(buffer(view[part].tri,Uint32Array),1));g.computeVertexNormals();
+      const surface=new THREE.Mesh(g,new THREE.MeshLambertMaterial({color,flatShading:true,side:THREE.DoubleSide,polygonOffset:true,polygonOffsetFactor:1,polygonOffsetUnits:1}));group.add(surface);
+      if(byId('edges').checked){const lines=new THREE.LineSegments(new THREE.WireframeGeometry(g),new THREE.LineBasicMaterial({color:0x443c38,transparent:true,opacity:part==='t5'?0.55:0.27}));group.add(lines);}
+    }render();
+  }
+  function resize(){const w=stage.clientWidth,h=stage.clientHeight;renderer.setSize(w,h,false);camera.aspect=w/h;camera.updateProjectionMatrix();render();}
+  orbit.addEventListener('change',render);region.onchange=()=>{geometry();frame();};byId('cut').onchange=byId('edges').onchange=geometry;byId('reset').onclick=frame;
+  new ResizeObserver(resize).observe(stage);resize();geometry();frame();
+}
+try{drawViewer();}catch(error){stage.textContent='Mesh could not be displayed. '+error.message;}
+</script></html>

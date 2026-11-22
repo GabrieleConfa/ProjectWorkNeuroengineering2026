@@ -1,3 +1,29 @@
+# Personal median nerve model · MATLAB
+
+Open **start_nerve.m** in MATLAB R2025a and press **Run**. The default run regenerates the geometry, figures, connected-section mesh, all 48 electrical solutions and the offline browser views. The Command Window prints the local links.
+
+| To reopen a saved result | MATLAB command | File to double-click after extracting the project |
+|---|---|---|
+| All three saved pages | `start_nerve("open")` | Open the three files below |
+| Stimulation, initially on AS5 | `start_nerve("viewer")` | `viewer/personal.html` |
+| Rotate and section the tetrahedral mesh | `start_nerve("mesh")` | `viewer/mesh.html` |
+| Review the figure gallery | `start_nerve("figures")` | `viewer/figure.html` |
+
+### Inputs and calculation
+
+- Edit `config/quicklook3DParams.m` for the oval, fascicle coordinates, lead mechanics and cuff closure. Electrical settings are in `config/pw6_3d_params.m` and the supplied active sites are in `data/electrode/sites.mat`.
+- Each supplied cuff azimuth identifies a point on the native oval. The flat face is tangent to the oval at that point before closure and advances along its local normal. The contact figure shows two pads on different parts of the oval. The 3 µm extra closure per pad is an assumption. The surrounding insulating sleeve uses a separate assumed circular outer envelope.
+- Ten representative fascicles occupy 5.01 of 9.20 mm². The largest is 1.49 mm². The ellipse represents group measurements. Individual centres, other areas and functional assignments are unknown. The provided synthetic layout was selected for geometric feasibility of eight insertions. It cannot estimate penetration frequency. [Pušnik et al.](https://doi.org/10.1038/s41598-024-84396-y)
+- MATLAB constructs successive nerve contours spanning −30 to +30 mm. The Gmsh helper in `src/mesh` joins corresponding profiles, intersects the device and tissue volumes, and generates conforming tetrahedra. MATLAB assembles and solves the anisotropic conduction problem. To rebuild, install Gmsh, NumPy and SciPy into a Python environment (for example `python3 -m venv .venv` followed on macOS by `.venv/bin/python -m pip install gmsh numpy scipy`). The environment variable `NERVE_GMSH_PYTHON` can specify the Python executable on another computer.
+- In the stimulation viewer select a contact and press **Space**. Keys **1–4** select potential, field magnitude, current density and activating function. **P** animates a pulse. The activating function estimates axial electrical drive; the animation does not calculate action potentials. The 60 mm FEM domain includes the ends; the exported heatmap covers the central 25 mm. [Original viewer and solver design](https://github.com/GabrieleConfa/ProjectWorkNeuroengineering2026/blob/9fdf9ea/docs/design.md)
+- Helpers live in `scripts/` and `src/`. Generated figures, numerical solutions and browser data live in `results/3d_preview`, `results/main3d` and `results/viewer`. The HTML files use these relative paths, so keep the folders together.
+- `start_nerve("convergence")` repeats the mesh study (four meshes, pads AS1, AS5, AS17) and writes tables and figures to `results/convergence`; the gallery shows them. The study reuses the production mesher and solver and does not overwrite the 48 saved fields.
+- Older outputs (2D FEM, local slab, reference-patient figures, single-fibre MRG runs) were moved out of the project to `../archivio_risultati_vecchi/results/`. To rerun the single-fibre experiment below, move `mrg` back into `results/`.
+- Pending measurements are listed in [the meeting notes](docs/meetings/2026-11-23_domande_prof.md).
+
+<details>
+<summary>Group reference workflows and development notes</summary>
+
 # Intraneural stimulation of the human median nerve — FEM project
 
 Neuroengineering course project (Politecnico di Milano, A.Y. 2026/2027) — group work,
@@ -86,13 +112,12 @@ represent finite active faces (0.2 × 0.2 mm in the supplied file).
   case retains the straight path and returns the overlapping fascicle IDs in
   `modelStraight.strips(k).envelopeFascicles`. Overlap is geometric; this mode
   does not model rupture or estimate penetration probability.
-- The tutor's file locates four intraneural active faces on both sides of the
-  axis, but does not define the carrier body or insertion end points. The
-  preview draws only separate partial candidate paths from the outer nerve to
-  the innermost faces. These lines are visual hypotheses, not a confirmed
-  connected shank. The current route search still checks a full transverse
-  curve as a conservative geometric screen; it must be replaced when the tutor
-  confirms the actual number and length of inserted shanks.
+- Each station has one continuous lead entering from the negative side of the
+  local insertion axis and ending beyond the fourth active face. The horizontal
+  station enters from the left. Other stations rotate with the supplied pad
+  coordinates. The nominal tip extension is provisionally 50 µm
+  (`p.electrode.tipOverhang_m`). The FEM represents the conductive contacts
+  and the three tissues. The carrier path is a geometric overlay.
 - **Visualization** is in `src/utils/plotQuicklookNerve.m`,
   `src/utils/plotStationAtlas.m` and `src/utils/plotCuffApposition.m`. The 3D
   nerve, all eight current transverse stations, the strip route, and a
@@ -115,8 +140,7 @@ The experimental basis and limits of the insertion scenarios are recorded in
 [`docs/insertion_evidence.md`](docs/insertion_evidence.md). A first local
 three-dimensional tetrahedral mesh of one flattened cuff station can be made
 with `buildQuicklookMesh(p, cuffSites)`. It is a short uniform slab through a
-contact. The full axial nerve with its cuff transitions and transverse strips
-still needs a conforming volume mesh before a full-length 3D electrical solve.
+contact. The separate full-length personal case is described below.
 
 The insertion screen now reports a straight-path encounter angle and compares
 an ideal weak-axis buckling load with a probe-specific perineurium insertion
@@ -138,7 +162,7 @@ historical 2D FEM still uses its earlier circular section.
 The original 2D figures are preserved under `results/2d_sites` and describe
 the tutor P00 section with seven fascicles. The new 3D figures under
 `results/3d_preview` describe the current ten-fascicle quicklook anatomy.
-Use `run_complete_preview` to generate both sets in one MATLAB run. The old 2D
+Use `run_complete_preview` to generate the personal geometry and section atlas. The old 2D
 solver reports distorted elements and places its cuff sites in muscle in its
 own section; its field plots must not be interpreted as results for the new
 ten-fascicle model.
@@ -175,3 +199,56 @@ setup_paths; export_viewer_data     % writes results/viewer/<patient>/ (geometry
 then open `viewer/index.html` in Chrome, Edge or Firefox (double-click, no server needed). Rotate the
 nerve with the mouse, press Space (or click a contact) to show its field, cut the nerve
 transversally or lengthwise. Keys and options: `docs/model_3d.md` §8.2.
+
+### Personal 60 mm case
+
+From the project root in MATLAB R2025a, run `setup_paths; run_personal_3d`.
+The original reference patient is UA01. The personal case is Cuff60 and uses the
+48 contact IDs from the supplied device. The eight section drawings and the
+finite-element solver use the same routed internal pad centres and orientations.
+The personal mesh uses Gmsh 4.15.2 with NumPy and SciPy. Install those packages
+in a Python environment and set `NERVE_GMSH_PYTHON` to its Python executable.
+The default is `~/.cache/nerve-gmsh/bin/python`. MATLAB fits the surface
+nodes to the local cuff displacement, checks signed tetrahedral volumes and
+measures the triangles shared by each active pad and the epineurium before
+solving. Full apposition is an imposed geometric condition. The cuff pressure
+and tissue response still require measurements.
+Open `viewer/personal.html` for the stimulation view. Field sampling for
+display uses 100 µm in x and y and 200 µm in z. The numerical solution retains
+the tetrahedral mesh resolution. The monopolar return is the grounded exterior.
+For dimensions and functional assignments, set `p.geometry.functionLabels`
+alongside the fascicle rows and run `plotFascicleMap(p)`.
+
+### Single-fibre propagation experiment
+
+The model is the [published MRG implementation on ModelDB](https://modeldb.science/3810),
+revision b15daeda6ea368df0198d257f339cf5e840cf31c. The example uses one
+10 µm motor fibre through one fascicle centre. The fixed endpoints and the choice
+of a single central fibre can affect initiation and recruitment. Recordings at
+four nodes and a zero-current control distinguish a voltage response from a
+local extracellular field. The supplied pulse is an exploratory simulation input.
+
+In a terminal, from the project root, prepare the Python environment once:
+
+```sh
+mkdir -p results/mrg                            # Keep downloaded and compiled files with local results.
+cd results/mrg                                 # NEURON discovers compiled mechanisms in this folder.
+git clone https://github.com/ModelDBRepository/3810.git model  # Obtain the published model.
+git -C model checkout b15daeda6ea368df0198d257f339cf5e840cf31c # Pin the morphology and ion mechanisms.
+python3 -m venv env                            # Isolate the propagation tools.
+env/bin/pip install neuron numpy matplotlib    # Install the numerical and plotting dependencies.
+env/bin/nrnivmodl model                        # Compile the published AXNODE mechanism.
+```
+
+From the MATLAB project root, export a solved axial profile:
+
+```matlab
+setup_paths % Locate the shared interpolation routine.
+export_axon_profile('results/main3d/Cuff60_3d.mat',1,1,'results/mrg/Cuff60_AS1_F1.csv') % Select AS1 and the F1 centreline.
+```
+
+From the terminal in `results/mrg`, run
+`env/bin/python ../../scripts/run_mrg_fibre.py Cuff60_AS1_F1.csv --current-uA 100 --phase-ms 0.05`.
+This writes the voltage traces and the plot with the pulse settings in the filenames.
+
+</details>

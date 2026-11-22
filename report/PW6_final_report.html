@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Median nerve model: final report</title>
+<style>
+@page{size:A4;margin:16mm 15mm}
+body{font:10.5pt/1.45 -apple-system,Helvetica,Arial,sans-serif;color:#1c2330}
+h1{font-size:22pt;margin:0 0 4pt}h2{font-size:14.5pt;border-bottom:2px solid #2b6cb0;padding-bottom:3pt;margin-top:20pt;page-break-after:avoid}
+h3{font-size:11.5pt;margin:12pt 0 3pt;page-break-after:avoid}
+.sub{color:#556;margin-bottom:10pt}
+table{border-collapse:collapse;width:100%;margin:6pt 0 10pt;font-size:9.2pt}tr{page-break-inside:avoid}
+th,td{border:1px solid #c5ccd6;padding:3.5pt 5pt;vertical-align:top;text-align:left}th{background:#eaf1f9}
+.m{background:#e6f4ea}.d{background:#fff6dd}.a{background:#fde8e8}
+.tag{font-weight:700;font-size:8.5pt;padding:1pt 4pt;border-radius:3pt}
+.tm{background:#c9ebd3}.td{background:#ffe9a8}.ta{background:#f8c9c9}
+figure{margin:8pt 0;page-break-inside:avoid}figure img{max-width:100%;border:1px solid #dde}
+figcaption{font-size:9pt;color:#445;margin-top:2pt}
+.box{border-left:4px solid #2b6cb0;background:#f3f7fc;padding:6pt 9pt;margin:8pt 0;page-break-inside:avoid}
+.warn{border-left-color:#c05621;background:#fff4ea}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8pt}
+code{font-size:9pt;background:#f0f2f5;padding:0 2pt}
+</style></head><body>
+
+<h1>Intraneural and cuff stimulation of the human median nerve</h1>
+<div class="sub">Neuroengineering course project (PW6) &middot; 3D finite-element model at mid-upper arm &middot; personal branch <code>cuff-shank-3d</code> &middot; report of 22 Nov 2026</div>
+
+<div class="box"><b>How to read this report.</b> Every number is tagged as
+<span class="tag tm">MEASURED</span> (taken from a paper or from the supplied device file),
+<span class="tag td">DERIVED</span> (calculated from measured values) or
+<span class="tag ta">ASSUMED</span> (a modelling choice, adjustable, not supported by data yet).
+The single entry point of the code is <code>start_nerve.m</code>: <i>Run</i> regenerates everything, <code>start_nerve("open")</code> reopens the gallery, the mesh and the stimulation viewer.</div>
+
+<h2>1. Question and approach</h2>
+<p>Can an intraneural electrode with 8 stations (4 internal pads and 2 cuff pads each, 48 active sites in total) stimulate the fascicles of the median nerve at mid-arm? The model is a quasi-static volume conductor solved by the finite-element method: a current leaves one pad and flows through the anisotropic endoneurium, the thin perineurium (potential jump), the epineurium and the surrounding muscle to a grounded outer boundary. The potential <i>V</i> satisfies div(&sigma;&nabla;V) = 0. The solution is linear, so results scale with the injected current (the stored fields are for 1 &micro;A).</p>
+<p>The pipeline has four steps: (1) anatomy, routed leads and figures; (2) connected cross-sections along 60 mm, tetrahedral mesh (Gmsh), assembly and solution in MATLAB for all 48 pads; (3) mesh-convergence study; (4) offline browser pages: figure gallery, rotatable mesh and stimulation viewer.</p>
+
+<h2>2. Data: measured, derived, assumed</h2>
+<h3>2.1 Anatomy</h3>
+<table><tr><th>Quantity</th><th>Value used</th><th>Status</th><th>Source / note</th></tr>
+<tr class="m"><td>Nerve area, mid-upper arm</td><td>9.20 &plusmn; 1.73 mm&sup2;</td><td><span class="tag tm">MEASURED</span></td><td>Pu&scaron;nik et al. 2025, Table 1 (histological sections, 14 samples, 7 donors). Ultrasound pooled value 8.81 mm&sup2; (Ng et al. 2022) agrees in magnitude.</td></tr>
+<tr class="m"><td>Nerve roundness</td><td>0.62 &plusmn; 0.16</td><td><span class="tag tm">MEASURED</span></td><td>Pu&scaron;nik 2025, Table 1 (histology). An older team note quoted 0.77/0.73; the literature pack marks that as corrected.</td></tr>
+<tr class="d"><td>Nerve semi-axes</td><td>2.17 &times; 1.35 mm (ellipse)</td><td><span class="tag td">DERIVED</span></td><td>From area and roundness; the area of the ellipse stays 9.20 mm&sup2;.</td></tr>
+<tr class="m"><td>Number of fascicles</td><td>10 (10.07 &plusmn; 2.87)</td><td><span class="tag tm">MEASURED</span></td><td>Pu&scaron;nik 2025, Table 1.</td></tr>
+<tr class="m"><td>Total fascicle area / largest fascicle</td><td>5.01 mm&sup2; / 1.49 mm&sup2;</td><td><span class="tag tm">MEASURED</span></td><td>Pu&scaron;nik 2025, Table 1 (aggregate constraints only).</td></tr>
+<tr class="a"><td>Positions and individual areas of the other nine fascicles; circular shape of each fascicle</td><td>synthetic layout</td><td><span class="tag ta">ASSUMED</span></td><td>No individual maps exist. The layout was selected so that the eight insertions are geometrically feasible. <b>It must not be used to estimate a puncture probability.</b></td></tr>
+<tr class="a"><td>Perineurium thickness</td><td>14 &micro;m, thin layer</td><td><span class="tag ta">ASSUMED</span></td><td>Consistent with 13.8 &micro;m measured on canine fascicles (Horn 2023); not human data.</td></tr>
+<tr class="a"><td>Outer insulating envelope</td><td>circular, 0.5 mm wall</td><td><span class="tag ta">ASSUMED</span></td><td>Approximation; the real sleeve shape is unknown.</td></tr></table>
+
+<h3>2.2 Device and cuff</h3>
+<table><tr><th>Quantity</th><th>Value used</th><th>Status</th><th>Source / note</th></tr>
+<tr class="m"><td>Active sites</td><td>48 = 8 stations &times; (4 internal + 2 cuff); z = &plusmn;4.3, &plusmn;6.3, &plusmn;8.3, &plusmn;10.3 mm</td><td><span class="tag tm">MEASURED</span></td><td>Layout file supplied by the tutor (<code>sites.mat</code>).</td></tr>
+<tr class="m"><td>Pad face</td><td>0.2 &times; 0.2 mm = 0.040 mm&sup2;</td><td><span class="tag tm">MEASURED</span></td><td><code>sites.mat</code>; 0.040 mm&sup2; of interface verified in the mesh for each of the 16 cuff pads.</td></tr>
+<tr class="a"><td>Pad thickness</td><td>50 &micro;m</td><td><span class="tag ta">ASSUMED</span></td><td>Course slides; <code>sites.mat</code> lists 5 &micro;m. Literature range 0.3 to 125 &micro;m.</td></tr>
+<tr class="d"><td>Cuff pad pose</td><td>flat face tangent to the ellipse at its azimuth, advancing along the local normal</td><td><span class="tag td">DERIVED</span></td><td>The supplied angle identifies a point on the oval. Corrected in this version (see section 3).</td></tr>
+<tr class="a"><td>Extra closure per cuff pad</td><td>3 &micro;m beyond full seating</td><td><span class="tag ta">ASSUMED</span></td><td>Adjustable. Resulting centre indentations: 4.43 &micro;m at AS5 (top of the oval) and 8.99 &micro;m at AS17 (end of the major axis).</td></tr>
+<tr class="m"><td>Tissue stiffness (Ogden 1 term)</td><td>&mu; = 12.9 &plusmn; 4.8 kPa, &alpha; = 6.5 &plusmn; 4.9</td><td><span class="tag tm">MEASURED</span></td><td>Main et al. 2011: 10 cadaveric median nerves at the wrist, convex 10 mm platens, up to 40 % compression. It does not calibrate this device (flat pads, mid-arm).</td></tr>
+<tr class="a"><td>Lead trajectories</td><td>8 distinct routes, each enters from one side, deflects around fascicles and ends beyond the last pad</td><td><span class="tag ta">ASSUMED</span></td><td>Approved geometric scenarios; insertion forces and angles are not measured.</td></tr></table>
+
+<h3>2.3 Electrical properties</h3>
+<table><tr><th>Tissue</th><th>Used (S/m)</th><th>ASCENT / Pelot set (S/m)</th><th>Stefano 2023 (S/m)</th></tr>
+<tr><td>Endoneurium, transverse / longitudinal</td><td>0.0826 / 0.571</td><td>0.167 / 0.571</td><td>0.00826 / 0.0571</td></tr>
+<tr><td>Perineurium</td><td>0.00088</td><td>0.00087</td><td>0.00088</td></tr>
+<tr><td>Epineurium</td><td>0.0826</td><td>0.159</td><td>0.0826</td></tr>
+<tr><td>Muscle, transverse / longitudinal</td><td>0.13 / 0.56</td><td>0.086 / 0.35</td><td>&ndash;</td></tr></table>
+<div class="box warn"><b>Open point.</b> The values in use mix sets: epineurium from Stefano, endoneurium longitudinal from Pelot. The literature pack recommends ASCENT/Pelot as baseline and Stefano as a sensitivity case. Because the cuff pads rest on the epineurium, this choice changes the access resistance. We did <b>not</b> change it; a sensitivity run is proposed in section 6. Numerical stand-ins: active pad conductivity 10<sup>3</sup> S/m (equipotential), idle pads 10<sup>&minus;7</sup> S/m.</div>
+
+<h2>3. What this version contains and what changed</h2>
+<table><tr><th>Item</th><th>State</th></tr>
+<tr><td>Eight lead trajectories and approved figures</td><td><b>Kept</b> unchanged.</td></tr>
+<tr><td>16 cuff pads tangent to the ellipse, advancing along the local normal</td><td><b>Kept</b> (correction of the earlier radial placement). Used in figures, mesh and viewer.</td></tr>
+<tr><td>Mesh from connected sections along 60 mm</td><td><b>Kept</b>: about 548,000 tetrahedra (the exact count varies by about 0.1 % between runs because Gmsh is not deterministic); 48 fields, four maps per pad.</td></tr>
+<tr><td>Force-versus-closure plot with end dots</td><td><b>Removed</b>, together with its table: agreed to be incorrect for this device.</td></tr>
+<tr><td>Cuff contact figure</td><td><b>Changed</b>: the bottom-right side view (flat, uninformative) was replaced by a transverse cut at a second oval zone, chosen automatically as the pad with the largest indentation.</td></tr>
+<tr><td>Mesh convergence study</td><td><b>New</b>, part of <i>Run</i> (section 5).</td></tr>
+<tr><td>Opening the pages</td><td><b>Fixed</b>: always opens in Chrome (the viewer needs WebGL2 and local scripts); the viewer now states why stimulation is unavailable if the stored fields do not match the geometry.</td></tr>
+<tr><td>Output folder</td><td><b>Cleaned</b>: <code>results/</code> holds only current outputs; older material was moved to <code>archivio_risultati_vecchi/</code>.</td></tr>
+<tr><td>Viewer colours</td><td>Unchanged with respect to the original viewer (same palette and colour code).</td></tr>
+<tr><td>Original work of the colleague (reference patient UA01, 70 mm circular model, 2D solver)</td><td><b>Preserved</b>; it remains in the repository history and is merged into this branch.</td></tr></table>
+
+<h2>4. Results: geometry, mesh and fields</h2>
+<figure><img src="../results/3d_preview/all_stations_deflect.png"><figcaption>Figure 1. The eight stations: nerve section (ellipse), fascicles, routed leads and active pads. The fascicle layout is synthetic.</figcaption></figure>
+<div class="two">
+<figure><img src="../results/3d_preview/deflection_deflect.png"><figcaption>Figure 2. Routed lead (blue) versus a straight reference (red dashed) at section &minus;4.</figcaption></figure>
+<figure><img src="../results/3d_preview/fascicle_map.png"><figcaption>Figure 3. Fascicle map and dimensions. Functional assignments are still unknown.</figcaption></figure></div>
+<figure><img src="../results/3d_preview/local_cuff_deflect.png"><figcaption>Figure 4. Cuff&ndash;nerve contact at two zones of the oval. The dashed line is the native surface, the blue line the surface after contact (centre indentation 4.43 &micro;m at AS5 and 8.99 &micro;m at AS17, including the assumed 3 &micro;m).</figcaption></figure>
+<div class="two">
+<figure><img src="img/mesh_page.png"><figcaption>Figure 5. Tetrahedral mesh viewer (station &minus;4). Purple: electrode; beige: epineurium; red: fascicles.</figcaption></figure>
+<figure><img src="img/viewer_AS5.png"><figcaption>Figure 6. Stimulation viewer, potential from cuff pad AS5 at 1 &micro;A (precomputed FEM field).</figcaption></figure></div>
+<div class="box warn"><b>Limits of the viewer.</b> It displays precomputed FEM fields. The activating function indicates where an axon receives a depolarising drive; it is not an action-potential simulation. Propagation requires a separate fibre model (a NEURON/MRG example exists in the repository history).</div>
+
+<h2>5. Mesh convergence</h2>
+<p>The same geometry was meshed four times, shrinking every element-size control by a factor 1.4 per level (about 0.16, 0.28, 0.55 and 1.2 million tetrahedra; the third is the production mesh). One internal pad (AS1) and two cuff pads (AS5, AS17) injected 1 &micro;A. Compared quantities: access resistance, potential and axial field on a line 0.3 mm from the active face, and the activating function (second difference over 1 mm). The check at production size reproduces the saved solution to within about 1 %.</p>
+<table><tr><th>Pad</th><th>R (k&Omega;), 4 meshes coarse to fine</th><th>Change in last step</th></tr>
+<tr><td>AS1 (internal)</td><td>15.2 &rarr; 16.0 &rarr; 16.5 &rarr; 17.0</td><td>3.0 %</td></tr>
+<tr><td>AS5 (cuff)</td><td>28.8 &rarr; 30.6 &rarr; 31.5 &rarr; 32.9</td><td>4.0 %</td></tr>
+<tr><td>AS17 (cuff)</td><td>27.0 &rarr; 29.6 &rarr; 30.2 &rarr; 31.9</td><td>5.1 %</td></tr></table>
+<figure><img src="../results/convergence/convergence_values.png"><figcaption>Figure 7. Each quantity as a percentage of its finest-mesh value. A converged quantity flattens near 100 %.</figcaption></figure>
+<figure><img src="../results/convergence/convergence_profiles.png"><figcaption>Figure 8. Potential and axial field along the probe line on each mesh.</figcaption></figure>
+<div class="box"><b>Reading.</b> The shape of the potential agrees on all meshes. The access resistance, however, still rises by about 3&ndash;5 % at each refinement and shows no plateau, so the production mesh is <b>not converged</b> for it, and is probably an underestimate. The axial field and the activating function change by a few percent and are noisy (derivatives of a piecewise-linear potential). Richardson extrapolation is not reported because the observed order of convergence is not usable. Run-to-run Gmsh variation alone moves the resistance by about 1 %. A likely cause is the current concentration at the pad edges; this is a hypothesis and was not tested.</div>
+
+<h2>6. Open questions and next steps</h2>
+<h3>For the tutor</h3>
+<ol>
+<li>What accuracy is needed on the access resistance? Is about 10 % acceptable, or should the mesh around the pads be refined (more than 1 million tetrahedra)?</li>
+<li>Is an equipotential pad with a uniform volume source acceptable, or should the current be imposed on the pad face?</li>
+<li>Which conductivity set should be the baseline (ASCENT/Pelot or Stefano)?</li>
+<li>Closed pad gap or closing force, and a cross-section showing how the cuff sits on the nerve (also to ask Ali).</li>
+<li>Pad orientation and dimensions, edge curvature and support stiffness; confirm 0.20 &times; 0.20 mm and 50 &micro;m thickness.</li>
+<li>Lead width, thickness, material, free length, tip shape and depth beyond the last pad; entry side and angle at each station.</li>
+<li>Insertion force, puncture force, angle dependence and entry frequency for this device; does the fascicle move, the lead bend, or both?</li>
+<li>Include the insulating lead volume in the electrical model, or only the pads? Which return contact, waveform, duration and amplitude?</li>
+</ol>
+<h3>For the anatomy group</h3>
+<p>A mid-arm section with scale, orientation, contours and anatomical level, and any oriented sections or fibre/function assignments over the 6 cm.</p>
+<h3>Planned work (no change to anatomy, leads or cuff until data arrive)</h3>
+<ul><li>Sensitivity run of the access resistance to the conductivity sets and to the 3 &micro;m closure.</li>
+<li>Refinement around the pads, guided by the tutor's answer on accuracy.</li>
+<li>Update of fascicle dimensions when the colleague's file is integrated (<i>pending</i>).</li>
+<li>Safety check of charge per phase for the 0.040 mm&sup2; pads with the material limit (gold is a poor stimulating material; Pt or IrOx suggested by the literature pack) and the Shannon criterion. For a 0.2 &times; 0.2 mm site, the Pt limit (about 0.1 mC/cm&sup2;) corresponds to about 40 nC per phase.</li></ul>
+
+<h2>7. Reproducibility</h2>
+<ul><li>Requirements: MATLAB R2025a with the PDE Toolbox, Python with Gmsh, NumPy and SciPy (set <code>NERVE_GMSH_PYTHON</code> if not in the default location), Google Chrome.</li>
+<li><code>start_nerve</code> runs the four steps; <code>start_nerve("open")</code>, <code>("viewer")</code>, <code>("mesh")</code>, <code>("figures")</code> and <code>("convergence")</code> reopen or repeat single parts.</li>
+<li>Editable inputs: <code>config/quicklook3DParams.m</code> (anatomy, lead mechanics, closure) and <code>config/pw6_3d_params.m</code> (materials, mesh sizes, solver).</li>
+<li>Sources: Pu&scaron;nik et al. 2025 (Sci Rep, Table 1); Main et al. 2011 (J Biomech); Delgado-Mart&iacute;nez et al. 2016; Brill &amp; Tyler 2017; Ng et al. 2022; Pelot et al. 2019 / ASCENT; Zelechowski 2020; Horn 2023; Stefano et al. 2023; Kangasmaa 2025. Values were taken from the team's literature pack of 22 Nov 2026, where each entry is marked verified or unverified; entries marked unverified there are used here only as context.</li></ul>
+</body></html>
