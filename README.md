@@ -90,6 +90,62 @@ on the colour bar. A link can open a prepared view, e.g.
 `q=V|E|J|A`, `cut=transverse|longitudinal`, `z`, `angle`, `offset`, `flip=1`, `full=1`,
 `cmap=inferno`, `patient`). Details: [docs/model_3d.md](docs/model_3d.md) §8.2.
 
+#### Tutorial: a first look in five steps
+
+1. Open `viewer/index.html`, choose **AS 2** in *Contact* and press **Space**. The fascicles light up
+   with the activating function of that contact.
+2. Press **C** (transverse cut), then click the station button **−4**: you now see the cross-section
+   through the ring of contacts 1–6, with the heatmap painted on the cut face. The cut face is the
+   best place to *read* the map, because the 3D glow adds up colour along the line of sight.
+3. Move the cut with **↑ ↓** (or the *z* slider) to see how far along the nerve the stimulus reaches.
+4. Press **← →** to go through contacts 1–6 and compare which fascicle each one drives.
+5. Read the values by matching a colour on the cut face with the colour bar. Type a current in
+   *Current* to read the values for that current instead of 1 µA. Hovering a contact shows where it
+   is (fascicle or epineurium) and its access resistance.
+
+#### The control panel
+
+| Control | What it does |
+|---|---|
+| *Contact* | which solved contact is shown |
+| *V / \|E\| / \|J\| / AF* | which quantity is shown (see above) |
+| *Current* | multiplies the **numbers on the colour bar** only. The model is linear, so the picture is the same at any current |
+| *Window lo* | values below it are not coloured (transparent in 3D, tissue colour on the cut face) |
+| *Window hi* | values above it all get the top colour |
+| *Glow* | opacity of the 3D heatmap; purely visual |
+| *Colours* | colour map (turbo or inferno) |
+| *pulse train* | animation of a pulse train; purely visual |
+| *z*, *angle*, *offset*, *flip side* | position of the transverse or lengthwise cut, and which half is removed |
+| *keep contacts* | the contacts are drawn even where the cut removes the nerve |
+| *Show* checkboxes | hide/show nerve, fascicles, cuff, contacts, labels; *full length* shows all 70 mm |
+
+**How the window works.** Each contact's field is stored on a 0–1 scale *of its own*.
+For V the scale is linear, from the minimum to the maximum. For |E|, |J| and AF it is
+**logarithmic over 3 decades**: 1 is the 99.9th percentile of that contact's field, 0 is 1000×
+smaller, so **0.33 on the slider = a factor of 10**. The colour bar always shows the window in
+physical units: its left end is the value at *lo* and its right end is the value at *hi*.
+
+| Window lo (AF, \|E\|, \|J\|) | Shows values down to | Use it to |
+|---|---|---|
+| 0.9 | 1/2 of the maximum | see only where the stimulus is strongest (the fibres that would fire first) |
+| 0.8 | 1/4 | see the main target fascicle and its closest neighbours |
+| **0.5** (AF default) | 1/30 | general view: target and the clearly secondary fascicles |
+| 0.6 (\|E\|, \|J\| default) | 1/16 | general view of field and current paths |
+| 0.2–0.3 | 1/250–1/125 | see how far the weak spread reaches (the whole nerve lights up) |
+
+Keep *Window hi* at 1 (lowering it saturates the top of the scale). For V the defaults (0.25 / 1)
+are fine. *Glow* between 1 and 3: lower it if the 3D view looks foggy, raise it for faint fields.
+Once a threshold is known (phase 5), set *Window lo* so that the left end of the colour bar reads
+the threshold at your current: everything coloured is then above threshold.
+
+**Reading the colours correctly.** Colours are relative: red means "close to the strongest value of
+*this* contact", not "the fibres fire". Whether fibres fire depends on the absolute value (colour bar
+× current) compared with a threshold. It is expected that the fascicle nearest a contact is the
+most stimulated, even through the epineurium. The epineurium is a conductor (0.083 S/m). The
+resistive barrier is the perineurium (0.00088 S/m, 14 µm), and it surrounds *every* fascicle. It
+lowers the current that enters all of them and so raises the threshold, but it does not change
+which fascicle is reached first: the potential falls with the distance from the contact.
+
 ### Running the 3D simulation
 
 ```matlab
