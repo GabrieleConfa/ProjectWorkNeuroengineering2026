@@ -429,10 +429,36 @@ function tube(r, x, y, z0, z1, segments = 128) {
   return g;
 }
 
+// The nerve section is an ellipse centred on the axis (semi-axes NA[0] along the angle NROT, NA[1]);
+// data exported before 2026-11-22 have no nerveAxes: a circle of radius nerveRadius.
+let NA = [1, 1], NROT = 0;
+function initNerveShape() {
+  NA = M.nerveAxes || [M.nerveRadius, M.nerveRadius];
+  NROT = (M.nerveRotation || 0) * Math.PI / 180;
+}
+function isOval() { return Math.abs(NA[0] - NA[1]) > 1e-9; }
+// elliptical tube with semi-axes (a, b), rotated with the nerve
+function ellTube(a, b, z0, z1, segments = 160) {
+  const g = new THREE.CylinderGeometry(1, 1, z1 - z0, segments, 1, true);
+  g.rotateX(Math.PI / 2);
+  g.scale(a, b, 1);                        // also transforms the normals
+  g.rotateZ(NROT);
+  g.translate(0, 0, (z0 + z1) / 2);
+  return g;
+}
+// point of the ellipse (a, b) at parameter t
+function ellPoint(a, b, t) {
+  const x = a * Math.cos(t), y = b * Math.sin(t);
+  return [x * Math.cos(NROT) - y * Math.sin(NROT), x * Math.sin(NROT) + y * Math.cos(NROT)];
+}
+// half-extent of the ellipse (a, b) along world y (for labels and the cut quad)
+function ellExtentY(a, b) { return Math.hypot(a * Math.sin(NROT), b * Math.cos(NROT)); }
+
 function buildModel() {
+  initNerveShape();
   const R = M.nerveRadius, L = M.nerveLength;
   // nerve and fascicle shells, full length (the view range is set with clipping planes)
-  const nerve = new THREE.Mesh(tube(R, 0, 0, -L / 2, L / 2, 160), glassMaterial(NERVE_COLOUR, 0.025, 0.55));
+  const nerve = new THREE.Mesh(ellTube(NA[0], NA[1], -L / 2, L / 2), glassMaterial(NERVE_COLOUR, 0.025, 0.55));
   nerve.renderOrder = 1;
   model.add(nerve);
   shellMeshes.nerve.push(nerve);
@@ -443,17 +469,28 @@ function buildModel() {
     model.add(m);
     shellMeshes.fascicles.push(m);
   });
-  // cuff: inner and outer wall + end annuli
-  const Lc = M.cuff.length, Rc = R + M.cuff.wall;
+  // cuff (shaped on the nerve oval): inner and outer wall + end annuli
+  const Lc = M.cuff.length, W = M.cuff.wall;
   const cuffMat = glassMaterial(CUFF_COLOUR, 0.02, 0.3);
-  [tube(R + 0.002, 0, 0, -Lc / 2, Lc / 2), tube(Rc, 0, 0, -Lc / 2, Lc / 2)].forEach((g) => {
+  [ellTube(NA[0] + 0.002, NA[1] + 0.002, -Lc / 2, Lc / 2), ellTube(NA[0] + W, NA[1] + W, -Lc / 2, Lc / 2)].forEach((g) => {
     const m = new THREE.Mesh(g, cuffMat);
     m.renderOrder = 1;
     model.add(m);
     shellMeshes.cuff.push(m);
   });
+  const annulus = () => {
+    const shape = new THREE.Shape(), hole = new THREE.Path();
+    for (let k = 0; k <= 128; k++) {
+      const t = 2 * Math.PI * k / 128;
+      const po = ellPoint(NA[0] + W, NA[1] + W, t), pi = ellPoint(NA[0], NA[1], t);
+      if (k === 0) { shape.moveTo(po[0], po[1]); hole.moveTo(pi[0], pi[1]); }
+      else { shape.lineTo(po[0], po[1]); hole.lineTo(pi[0], pi[1]); }
+    }
+    shape.holes.push(hole);
+    return new THREE.ShapeGeometry(shape, 1);
+  };
   [-1, 1].forEach((s) => {
-    const g = new THREE.RingGeometry(R, Rc, 128, 1);
+    const g = annulus();
     g.translate(0, 0, s * Lc / 2);
     const m = new THREE.Mesh(g, cuffMat);
     m.renderOrder = 1;
@@ -490,7 +527,8 @@ function buildModel() {
 
   const p = M.patient;
   document.getElementById('subtitle').innerHTML =
-    `Patient ${p.id} (seed ${p.seed}, ${p.level}) · ${M.fascicles.length} fascicles · R = ${R.toFixed(2)} mm · ` +
+    `Patient ${p.id} (seed ${p.seed}, ${p.level}) · ${M.fascicles.length} fascicles · ` +
+    (isOval() ? `oval ${(2 * NA[0]).toFixed(2)} × ${(2 * NA[1]).toFixed(2)} mm · ` : `R = ${R.toFixed(2)} mm · `) +
     `${M.solvedIds.length} of ${M.sites.length} contacts solved<br>monopolar, return = grounded outer boundary`;
 }
 
@@ -510,8 +548,17 @@ function buildRingsAndLabels() {
       new THREE.LineBasicMaterial({ color: colour, transparent: true, opacity }));
     return line;
   };
+  const nerveRing = (z) => {
+    const pts = [];
+    for (let k = 0; k < 160; k++) {
+      const q = ellPoint(NA[0], NA[1], 2 * Math.PI * k / 160);
+      pts.push(new THREE.Vector3(q[0], q[1], z));
+    }
+    return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts),
+      new THREE.LineBasicMaterial({ color: NERVE_COLOUR, transparent: true, opacity: 0.8 }));
+  };
   [-zv, zv].forEach((z) => {
-    const nr = circle(R, 0, 0, z, NERVE_COLOUR, 0.8);
+    const nr = nerveRing(z);
     nr.userData.kind = 'nerve';
     ringGroup.add(nr);
     M.fascicles.forEach((f) => {
@@ -530,7 +577,7 @@ function buildRingsAndLabels() {
   stations.forEach((sec) => {
     const z = M.sites.find((s) => s.section === sec).centre[2];
     const sp = textSprite(`${sec > 0 ? '+' : ''}${sec}`, '#9fb3c8', 0.36);
-    sp.position.set(0, R + M.cuff.wall + 0.45, z);
+    sp.position.set(0, ellExtentY(NA[0] + M.cuff.wall, NA[1] + M.cuff.wall) + 0.45, z);
     labelGroup.add(sp);
   });
 }
@@ -577,7 +624,8 @@ function buildVolume() {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uData: { value: placeholder }, uBoxMin: { value: min }, uBoxMax: { value: max },
-      uCam: { value: new THREE.Vector3() }, uR: { value: M.nerveRadius },
+      uCam: { value: new THREE.Vector3() },
+      uAx: { value: new THREE.Vector2(NA[0], NA[1]) }, uRot: { value: new THREE.Vector2(Math.cos(NROT), Math.sin(NROT)) },
       uLo: { value: 0.3 }, uHi: { value: 1 }, uOpacity: { value: 1 }, uIntensity: { value: 0 },
       uZmin: { value: -VIEW_HALF_ZONE }, uZmax: { value: VIEW_HALF_ZONE }, uCmap: { value: 0 },
       uCutOn: { value: false }, uCut: { value: new THREE.Vector4(0, 0, 1, 0) },
@@ -593,10 +641,15 @@ function buildVolume() {
       varying vec3 vLocal;
       uniform sampler3D uData;
       uniform vec3 uBoxMin, uBoxMax, uCam;
-      uniform float uR, uLo, uHi, uOpacity, uIntensity, uZmin, uZmax;
+      uniform vec2 uAx, uRot;            // nerve semi-axes, (cos, sin) of the major-axis angle
+      uniform float uLo, uHi, uOpacity, uIntensity, uZmin, uZmax;
       uniform bool uCutOn;
       uniform vec4 uCut;                 // cut away where dot(uCut.xyz, p) > uCut.w
       ${GLSL_CMAPS}
+      float ellQ(vec2 p, vec2 ax) {      // < 1 inside the ellipse
+        vec2 l = vec2(uRot.x * p.x + uRot.y * p.y, -uRot.y * p.x + uRot.x * p.y) / ax;
+        return dot(l, l);
+      }
       float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
       void main() {
         vec3 o = uCam;
@@ -612,7 +665,7 @@ function buildVolume() {
           if (abs(dn) > 1e-6) {
             float tc = (uCut.w - dot(uCut.xyz, o)) / dn;
             vec3 pc = o + tc * d;
-            if (tc > tn && tc < tf && dot(pc.xy, pc.xy) < uR * uR && pc.z > uZmin && pc.z < uZmax) tf = tc;
+            if (tc > tn && tc < tf && ellQ(pc.xy, uAx) < 1.0 && pc.z > uZmin && pc.z < uZmax) tf = tc;
           }
         }
         if (tn >= tf || uIntensity <= 0.0) discard;
@@ -623,7 +676,7 @@ function buildVolume() {
           if (t > tf || acc.a > 0.97) break;
           vec3 p = o + t * d;
           t += dt;
-          if (dot(p.xy, p.xy) > uR * uR || p.z < uZmin || p.z > uZmax) continue;
+          if (ellQ(p.xy, uAx) > 1.0 || p.z < uZmin || p.z > uZmax) continue;
           if (uCutOn && dot(uCut.xyz, p) > uCut.w) continue;
           float c = texture(uData, (p - uBoxMin) / (uBoxMax - uBoxMin)).r * 255.0;
           if (c < 0.5) continue;
@@ -659,7 +712,8 @@ function buildSlice() {
   const mat = new THREE.ShaderMaterial({
     uniforms: {
       uData: { value: placeholder }, uHeat: { value: false }, uIntensity: { value: 0 },
-      uBoxMin: { value: min }, uBoxMax: { value: max }, uR: { value: M.nerveRadius },
+      uBoxMin: { value: min }, uBoxMax: { value: max },
+      uAx: { value: new THREE.Vector2(NA[0], NA[1]) }, uRot: { value: new THREE.Vector2(Math.cos(NROT), Math.sin(NROT)) },
       uWall: { value: M.cuff.wall }, uCuffHalf: { value: M.cuff.length / 2 },
       uLo: { value: 0.3 }, uHi: { value: 1 }, uCmap: { value: 0 },
       uFasc: { value: fasc }, uFascCol: { value: cols }, uNF: { value: M.fascicles.length },
@@ -676,7 +730,8 @@ function buildSlice() {
       varying vec3 vLocal;
       uniform sampler3D uData;
       uniform bool uHeat;
-      uniform float uIntensity, uR, uWall, uCuffHalf, uLo, uHi;
+      uniform float uIntensity, uWall, uCuffHalf, uLo, uHi;
+      uniform vec2 uAx, uRot;              // nerve semi-axes, (cos, sin) of the major-axis angle
       uniform vec3 uBoxMin, uBoxMax, uNerveCol;
       uniform vec3 uFasc[32];
       uniform vec3 uFascCol[32];
@@ -686,15 +741,20 @@ function buildSlice() {
         float w = fwidth(dist);
         return 1.0 - smoothstep(0.6 * w, 1.6 * w, abs(dist));
       }
+      float ellQ(vec2 p, vec2 ax) {        // < 1 inside the ellipse
+        vec2 l = vec2(uRot.x * p.x + uRot.y * p.y, -uRot.y * p.x + uRot.x * p.y) / ax;
+        return dot(l, l);
+      }
       void main() {
         vec3 p = vLocal;
-        float r = length(p.xy);
-        if (r > uR) {
-          if (r < uR + uWall && abs(p.z) < uCuffHalf) { gl_FragColor = vec4(0.16, 0.19, 0.23, 1.0); return; }
+        float q = ellQ(p.xy, uAx);
+        if (q > 1.0) {
+          if (ellQ(p.xy, uAx + vec2(uWall)) < 1.0 && abs(p.z) < uCuffHalf) { gl_FragColor = vec4(0.16, 0.19, 0.23, 1.0); return; }
           discard;
         }
         vec3 col = vec3(0.07, 0.09, 0.11);     // epineurium
-        float edge = outline(uR - r);
+        float r = length(p.xy);
+        float edge = outline(r / max(sqrt(q), 1e-6) - r);   // distance to the outline along the ray
         vec3 edgeCol = uNerveCol;
         for (int i = 0; i < 32; i++) {
           if (i >= uNF) break;
@@ -751,7 +811,7 @@ function updateCut() {
     shellPlanes.push(toWorld(n.clone().negate(), d));          // keep dot(n,p) <= d
 
     // slice quad on the cut plane
-    const h = M.nerveRadius + M.cuff.wall + 0.05;
+    const h = Math.max(NA[0], NA[1]) + M.cuff.wall + 0.05;
     let corners;
     if (state.cut === 'transverse') {
       const z = state.cutZ;
@@ -860,8 +920,8 @@ function initUI() {
   const zv = M.grid.z0 + (M.grid.nz - 1) * M.grid.dz;
   $('rZ').min = String(-Math.max(VIEW_HALF_ZONE, -M.grid.z0));
   $('rZ').max = String(Math.max(VIEW_HALF_ZONE, zv));
-  $('rOff').min = String(-M.nerveRadius);
-  $('rOff').max = String(M.nerveRadius);
+  $('rOff').min = String(-Math.max(NA[0], NA[1]));
+  $('rOff').max = String(Math.max(NA[0], NA[1]));
   $('rZ').addEventListener('input', () => { state.cutZ = +$('rZ').value; updateAll(); });
   $('rAng').addEventListener('input', () => { state.cutAngle = +$('rAng').value; updateAll(); });
   $('rOff').addEventListener('input', () => { state.cutOffset = +$('rOff').value; updateAll(); });
@@ -954,7 +1014,7 @@ function onKey(e) {
   else if (k === 'arrowup' || k === 'arrowdown') {
     const s = k === 'arrowup' ? 1 : -1;
     if (state.cut === 'transverse') state.cutZ = clampNum(state.cutZ + 0.1 * s, +$('rZ').min, +$('rZ').max);
-    else if (state.cut === 'longitudinal') state.cutOffset = clampNum(state.cutOffset + 0.05 * s, -M.nerveRadius, M.nerveRadius);
+    else if (state.cut === 'longitudinal') state.cutOffset = clampNum(state.cutOffset + 0.05 * s, -Math.max(NA[0], NA[1]), Math.max(NA[0], NA[1]));
     updateAll();
   } else handled = false;
   if (handled) e.preventDefault();
@@ -986,7 +1046,8 @@ function initPicking() {
       `AS ${s.id} · ${s.type === 'cuff' ? 'cuff contact' : 'shank contact (intraneural)'}\n` +
       `station ${s.section > 0 ? '+' : ''}${s.section} · z = ${z.toFixed(1)} mm · r = ${Math.hypot(s.centre[0], s.centre[1]).toFixed(2)} mm\n` +
       (s.solved ? `${s.location}\naccess resistance ${s.R_kOhm.toFixed(2)} kΩ · click to stimulate`
-                : 'not solved yet (no field exported)');
+                : 'not solved yet (no field exported)') +
+      (s.type === 'cuff' && Number.isFinite(s.indent_um) ? `\nrigid pad: face pressed ${s.indent_um.toFixed(1)} µm into the nerve (centre)` : '');
     tip.style.display = 'block';
     tip.style.left = `${Math.min(ev.clientX + 14, window.innerWidth - 310)}px`;
     tip.style.top = `${ev.clientY + 14}px`;

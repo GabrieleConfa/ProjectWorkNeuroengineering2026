@@ -38,6 +38,15 @@ arguments
 end
 
 mm = 1e-3;                                   % mm -> m
+% A result saved on another computer stores that computer's absolute path to sites.mat: fall back to
+% the copy in this repository (data/electrode/sites.mat). Other file names still raise an error.
+% (From Marco's branch, 2026-11-22.)
+if ~isfile(filePath)
+    [~, name, ext] = fileparts(filePath);
+    if strcmp([name ext], 'sites.mat')
+        filePath = fullfile(fileparts(fileparts(fileparts(mfilename('fullpath')))), 'data', 'electrode', 'sites.mat');
+    end
+end
 S  = load(filePath, "sites");
 M  = S.sites;
 assert(size(M, 2) == 10, 'loadActiveSites:format', ...

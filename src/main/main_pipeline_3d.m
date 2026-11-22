@@ -16,10 +16,12 @@
 %   results/main3d/<id>_*.png         cross-section, z layout, potential maps and profiles
 %
 % Model in short (choices and reasons: docs/decisions.md D-02 ... D-09)
-%   - geometry: circular nerve (the rigid cuff is tight on it), fascicles generated from the
-%     literature (makePatient), the same section along the 70 mm (layered extrusion);
-%   - cuff: 50 mm, centred on the contacts, wall = void (perfect insulator); flat cuff contacts
-%     pressed 10 um into the nerve; shank contacts only (no shank body yet);
+%   - geometry: elliptical nerve of the literature area and roundness (D-10; the rigid cuff is
+%     tight on it), fascicles generated from the literature (makePatient), the same section along
+%     the 70 mm (layered extrusion);
+%   - cuff: 50 mm, centred on the contacts, wall = void (perfect insulator); rigid flat cuff pads,
+%     tangent to the oval and pressed into it until the whole face touches the nerve (D-11,
+%     placeCuffContacts); shank contacts at the tutor's positions (no shank body yet);
 %   - tissues: endoneurium (anisotropic, sigma_z = longitudinal), epineurium, muscle (anisotropic);
 %     PERINEURIUM = thin layer on the fascicle boundary (potential jump, sheet resistance rho*t);
 %   - active contact: high-conductivity cell with a uniform source I/volume (equipotential, carries
@@ -47,18 +49,21 @@ R = patient.nerveRadius_m;   fasc = patient.fascicles;   nF = height(fasc);
 genParams = struct('geometry', p.geometry, 'perineurium', p.perineurium, ...
                    'sitesFile', p.electrode.sitesFile, 'created', string(datetime("now")));
 save(fullfile(root, 'data', 'patients', patient.id + ".mat"), 'patient', 'genParams');
-fprintf('Patient %s (seed %d, %s): R = %.3f mm, %d fascicles, %d inner (target %d), %d restarts\n', ...
-        patient.id, patient.seed, patient.level, R/mm, nF, patient.generatorInfo.nInner, ...
+fprintf(['Patient %s (seed %d, %s): %s %.3f x %.3f mm (semi-axes, major axis at %g deg; equivalent ' ...
+         'R = %.3f mm), %d fascicles, %d inner (target %d), %d restarts\n'], ...
+        patient.id, patient.seed, patient.level, patient.nerveShape, patient.nerveSemiAxes_m/mm, ...
+        patient.nerveRotation_deg, R/mm, nF, patient.generatorInfo.nInner, ...
         patient.generatorInfo.targetInner, patient.generatorInfo.restarts);
 disp(table((1:nF)', round(fasc.x_m/mm, 3), round(fasc.y_m/mm, 3), round(fasc.rEndo_m/mm, 3), ...
      round(pi*fasc.rEndo_m.^2/mm^2, 3), 'VariableNames', {'F', 'x_mm', 'y_mm', 'rEndo_mm', 'area_mm2'}));
 
 sites = loadActiveSites(p.electrode.sitesFile, R);
 sites.thickness_m(:) = p.electrode.thicknessOverride_m;   % 50 um (slides), not the 5 um of sites.mat
-isCuff = sites.type == "cuff";
-% flat cuff contacts pressed into the nerve: inner face at R - indent
-sites.r_m(isCuff) = R - p.electrode.cuffIndent_m + sites.thickness_m(isCuff) / 2;
-sites.centre_m(isCuff, 1:2) = sites.r_m(isCuff) .* [cosd(sites.theta_deg(isCuff)), sind(sites.theta_deg(isCuff))];
+% rigid flat cuff pads: tangent to the oval, both side edges cuffEdgeIndent_m inside the nerve (D-11)
+[sites, cuffFit] = placeCuffContacts(sites, patient, p.electrode.cuffEdgeIndent_m);
+fprintf(['Cuff pads: face-centre indentation %.1f ... %.1f um, edges %.1f um, face normal tilted up to ' ...
+         '%.1f deg from radial\n'], min(cuffFit.centreIndent_m)/um, max(cuffFit.centreIndent_m)/um, ...
+        p.electrode.cuffEdgeIndent_m/um, max(cuffFit.tiltFromRadial_deg));
 where = contactLocation(sites, fasc);
 
 
@@ -108,7 +113,7 @@ switch p.electrode.idleContacts
 end
 tissueSigma = [sigT(1) sigT(1) sigL(1); 0 0 0; sigT(3) sigT(3) sigL(3); sigT(4) sigT(4) sigL(4); sIdle sIdle sIdle]';
 sig = tissueSigma(:, elemTissue);
-[K0, vol] = assembleConductionP1(tl.nodes_m, tl.tets, sig);
+[K0, vol] = assembleConductionP1(tl.nodes_m, tl.tets, sig, p.solve3d.assemblyBlockSize);
 K0 = K0 + tl.K;
 
 gnd = findNodes(msh, "region", "Face", geom.groundFaces);
@@ -157,7 +162,8 @@ for sec = unique(sites.section(ismember(sites.id, solveIds)))'
                        res(cols, :), fullfile(outDir, sprintf('%s_section%+d.png', tag, sec)));
 end
 
-out = struct('params', p, 'patient', patient, 'sites', sites, 'solvedIds', solveIds, 'results', res, ...
+out = struct('params', p, 'patient', patient, 'sites', sites, 'cuffFit', cuffFit, ...
+    'solvedIds', solveIds, 'results', res, ...
     'mesh', struct('nodes_m', tl.nodes_m, 'tets', uint32(tl.tets), 'elemCell', uint32(elemCell), ...
                    'nOriginalNodes', nN, 'dupOf', uint32(tl.dupOf)), ...
     'cells', struct('tissue', geom.cellTissue, 'fascicle', geom.cellFascicle, 'site', geom.cellSite, ...
@@ -177,7 +183,8 @@ switch opt.solver
     case "pcg"
         Lc = ichol(A, struct('type', 'ict', 'droptol', 1e-4, 'diagcomp', 1e-3));
         [x, flag, relres] = pcg(A, b, opt.pcgTol, 5000, Lc, Lc');
-        if flag ~= 0, warning('pcg did not converge (flag %d, relres %.1e).', flag, relres); end
+        % a non-converged solution must not be saved as a result (Marco's branch, 2026-11-22)
+        assert(flag == 0, 'pcg did not converge (flag %d, relres %.1e).', flag, relres);
     otherwise
         error('Unknown solver "%s".', opt.solver);
 end
@@ -205,8 +212,9 @@ end
 
 function drawSection(patient, geom, siteIdsToHighlight, sites)
 %DRAWSECTION Nerve, fascicles (with labels) and contact footprints, in mm.
-th = linspace(0, 2*pi, 300);   R = patient.nerveRadius_m;   f = patient.fascicles;
-plot(1e3*R*cos(th), 1e3*R*sin(th), 'k-', LineWidth=1);   hold on
+th = linspace(0, 2*pi, 300);   f = patient.fascicles;
+nb = nerveOutline(patient.nerveSemiAxes_m, patient.nerveRotation_deg, 300);
+plot(1e3*nb([1:end 1], 1), 1e3*nb([1:end 1], 2), 'k-', LineWidth=1);   hold on
 for i = 1:height(f)
     plot(1e3*(f.x_m(i) + f.rEndo_m(i)*cos(th)), 1e3*(f.y_m(i) + f.rEndo_m(i)*sin(th)), '-', ...
          Color=[0.25 0.25 0.25], LineWidth=0.8);
@@ -230,15 +238,16 @@ function plotSectionLayout(patient, geom, sites, p, fileName)
 %PLOTSECTIONLAYOUT Cross-section of the patient with all contact footprints + z layout of the model.
 figure(Color="w", Position=[40 60 1400 560], Name="Section and z layout");
 tl = tiledlayout(1, 3, TileSpacing="compact");
-title(tl, sprintf('Patient %s (seed %d): %d fascicles, R = %.2f mm, %d inner fascicles', patient.id, ...
-      patient.seed, height(patient.fascicles), patient.nerveRadius_m*1e3, patient.generatorInfo.nInner), ...
-      FontWeight="bold");
+title(tl, sprintf('Patient %s (seed %d): %d fascicles, %s %.2f x %.2f mm (semi-axes), %d inner fascicles', ...
+      patient.id, patient.seed, height(patient.fascicles), patient.nerveShape, patient.nerveSemiAxes_m*1e3, ...
+      patient.generatorInfo.nInner), FontWeight="bold");
 nexttile;
 drawSection(patient, geom, [], sites);
 xlabel('x [mm]'); ylabel('y [mm]');
 title({'Cross-section: fascicles and', 'contact footprints of all stations'}, FontSize=9);
 nexttile([1 2]);
-L = p.domain.nerveLength_m;   Lc = p.cuff.length_m;   R = patient.nerveRadius_m;   Rc = R + p.cuff.wallThickness_m;
+% side view (schematic): the nerve is drawn with its major semi-axis
+L = p.domain.nerveLength_m;   Lc = p.cuff.length_m;   R = max(patient.nerveSemiAxes_m);   Rc = R + p.cuff.wallThickness_m;
 Rm = p.domain.outerRadiusFactor * R;   zF = p.mesh3d.fineHalfLength_m;
 fill(1e3*[-L L L -L]/2, 1e3*[-Rm -Rm Rm Rm], [0.88 0.94 1], EdgeColor="none"); hold on
 fill(1e3*[-L L L -L]/2, 1e3*[-R -R R R], [0.98 0.90 0.75], EdgeColor="k");
@@ -264,7 +273,7 @@ function plotContactResults(tr, V, S, patient, geom, p, res, fileName)
 %PLOTCONTACTRESULTS For each contact of one station: V on the cross-section through the contact,
 % V along z on the axis of every fascicle, and its second difference over one internode (activating-
 % function preview), all for 1 uA.
-nC = height(S);   R = patient.nerveRadius_m;   f = patient.fascicles;   nF = height(f);
+nC = height(S);   R = max(patient.nerveSemiAxes_m);   f = patient.fascicles;   nF = height(f);
 uA = 1e-6;   L = p.domain.nerveLength_m;   dz = p.plot3d.afSpacing_m;
 figure(Color="w", Position=[20 20 min(1900, 300*nC + 120) 1000], Name="Contacts");
 tl = tiledlayout(3, nC, TileSpacing="loose", Padding="loose");

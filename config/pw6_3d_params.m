@@ -28,8 +28,16 @@ p.patient.seed = 1;                     % rng seed of the fascicle layout (NaN =
 g = struct();
 g.level               = "mid-upper arm";        % [group] PW6, Delgado-Martinez 2016
 g.nerveArea_m2        = 9.20 * mm^2;            % [source] Pusnik 2025, histology mean (PW6) -> R = 1.711 mm
-% Shape: CIRCLE. The cuff is rigid and tight on the nerve [group], so inside the cuff the nerve takes
-% the circular shape of the cuff; the extrusion keeps the same section along the 7 cm (D-03).
+% Shape (D-10): ELLIPSE with the same area. roundness = minor / major axis (for an ellipse this is
+% also the ImageJ "roundness" 4A/(pi*major^2)), so the semi-axes are R/sqrt(k) and R*sqrt(k):
+% 2.173 x 1.347 mm for k = 0.62. The rigid cuff is shaped on this native oval (tight, D-05); the
+% extrusion keeps the same section along the 7 cm (D-03). "circle" gives back the old round nerve.
+g.nerveShape          = "ellipse";              % [group 2026-11-22] "ellipse" | "circle"
+g.nerveRoundness      = 0.62;                   % [source, TO VERIFY] Pusnik 2025 Table 1, histology mean at
+                                                % mid-arm, as cited on Marco's branch; the paper is not in
+                                                % Papers/ yet
+g.nerveRotation_deg   = 0;                      % [assumed] major axis along x of the electrode frame:
+                                                % orientation of the device on the nerve not known (tutor)
 g.nFascicles          = 10;                     % [source] Pusnik 2025 (PW6)
 g.totalFascicleArea_m2 = 5.01 * mm^2;           % [source] Pusnik 2025: sum of fascicle (endoneurium) areas
 g.largestFascicleArea_m2 = 1.49 * mm^2;         % [source] Pusnik 2025 / PW6: one large fascicle
@@ -77,7 +85,8 @@ p.perineurium.realThickness_m = p.geometry.tPeri_m;    % [source] 14 um (PW6 / H
 
 %% Domain (D-02, D-04) --------------------------------------------------------------------------------
 p.domain.nerveLength_m     = 70 * mm;           % [group]
-p.domain.outerRadiusFactor = 3;                 % surrounding muscle up to 3 R (as in 2D)
+p.domain.outerRadiusFactor = 3;                 % surrounding muscle up to 3 x the MAJOR semi-axis
+                                                % (= 3 R for a circle, as in 2D)
 p.domain.lateralBC         = "ground";          % outer surface of the muscle: "ground" (as in 2D)
 p.domain.endBC             = "ground";          % end planes z = +/- L/2: "ground" | "insulated" [assumed,
                                                 % D-04: compare both]
@@ -91,10 +100,16 @@ p.cuff.fit = "tight";                           % [group] inner radius of the cu
 
 %% Contacts (D-07) ------------------------------------------------------------------------------------
 % Contacts only (no shank body yet) [group]. Gold, 50 x 200 x 200 um (pw6_2d_params).
-% Cuff contacts are FLAT and rigid [group]: the nerve is pressed in by cuffIndent_m under each
-% contact so that the whole 200 um face touches it (a flat face on a circle touches it only along
-% one line; the circle departs by (w/2)^2/(2R) = 2.9 um at the edges of the face).
-p.electrode.cuffIndent_m = 10 * um;             % [assumed] > 2.9 um, see above
+% Cuff contacts are FLAT and rigid [group] (D-11, src/electrode/placeCuffContacts.m): the face of
+% each pad is tangent to the native oval at the pad's angle theta (sites.mat) and is pushed along that
+% normal into the nerve until BOTH side edges of the face are cuffEdgeIndent_m below the native
+% surface, so the whole 200 um face touches the tissue. The electrode does not bend; the nerve
+% conforms: the tissue under the face is replaced by the rigid pad. The depth at the centre of the
+% face is larger by the sagitta (w/2)^2/(2 rho), rho = local radius of curvature: 1.4 um on the flat
+% side of the oval, 6.0 um at the ends of the major axis (2.9 um on the old circle).
+p.electrode.cuffEdgeIndent_m = 7 * um;          % [assumed] gives the old 10 um at the centre on the
+                                                % circle; a thinner sliver of tissue under the pad
+                                                % would give bad elements
 % Active contact: equipotential conductor carrying the current I. Modelled as a cell with a high
 % conductivity and a uniform current source I / volume inside it (the source integrates to exactly I,
 % the high conductivity makes the contact equipotential: the same physics as the 1 V + scaling of
@@ -124,6 +139,9 @@ p.mesh3d.hMin_m     = 5 * um;
 p.mesh3d.hGrad      = 1.4;
 p.solve3d.solver    = "direct";                 % "direct" (backslash) | "pcg" (ichol preconditioner)
 p.solve3d.pcgTol    = 1e-9;
+p.solve3d.assemblyBlockSize = 150000;           % numerical: tetrahedra per block when assembling the
+                                                % stiffness matrix (bounds the temporary memory; from
+                                                % Marco's branch, 2026-11-22)
 
 %% Plots ----------------------------------------------------------------------------------------------
 p.plot3d.afSpacing_m = 1 * mm;                  % node spacing of the activating-function preview:

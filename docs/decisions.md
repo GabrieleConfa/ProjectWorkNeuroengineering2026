@@ -70,8 +70,9 @@ contact boxes are then inserted in 3D with a Boolean union that keeps the existi
 boundary are merged into one contact cell. Code: `src/mesh/buildNerveGeometry3D.m`.
 (First version, abandoned the same day: the contact footprints drawn in the 2D section and a layer
 per station, i.e. 21 layers and ≈ 1000 pairwise `mergeCells` — still running after 40 minutes.)
-The nerve is circular: the cuff is rigid and tight, so inside it the nerve takes the shape of the
-cuff (the nerve conforms to the electrode, not vice versa — group, 2026-11-13).
+The nerve was circular until 2026-11-22 (the cuff rigid and tight, so the nerve took the round
+shape of the cuff); since then it is an ellipse, see D-10. The nerve still conforms to the electrode,
+not vice versa (group, 2026-11-13; D-11).
 Alternatives: slices at several z joined by interpolation (lofting).
 Why / source: (i) no data on how a given fascicle changes along 7 cm — interpolating would invent
 it, and fascicles that split or merge cannot be interpolated; (ii) the PDE Toolbox has no lofting
@@ -90,9 +91,12 @@ Consequence / limitation: TO DO — run both and report the change of V and of t
 function at the stations; if it is not negligible, lengthen the domain.
 
 ## D-05 — Cuff: rigid, tight, insulating wall modelled as a void  (2026-11-13, phase 3)
-Decision: cuff inner radius = R (no saline gap); inside the cuff the wall (R … R + wall thickness)
-is deleted from the geometry, so the nerve surface under the cuff is an insulated boundary. Outside
-the cuff the same ring is muscle. Wall thickness 0.5 mm `[assumed]`.
+Decision: cuff inner surface = nerve surface (no saline gap); inside the cuff the wall (from the
+nerve outline to the outline grown by the wall thickness) is deleted from the geometry, so the nerve
+surface under the cuff is an insulated boundary. Outside the cuff the same ring is muscle. Wall
+thickness 0.5 mm `[assumed]`. Since D-10 the cuff is shaped on the native oval: inner surface = the
+nerve ellipse a × b, outer surface = the ellipse (a + wall) × (b + wall) (not an exact parallel
+curve; the wall is a void, so its outer shape only sets where the muscle starts).
 Alternatives: a meshed low-conductivity wall (silicone); a thin saline film between cuff and nerve.
 Why / source: tight fit = group choice; a void is the exact limit of an insulator and costs no
 elements.
@@ -121,8 +125,9 @@ Decision: every contact is a cell of the mesh (50 × 200 × 200 µm, from its fo
 layer). The active contact gets σ = 1e3 S/m and a uniform source I/volume: it carries exactly I and
 is equipotential (the pipeline prints the spread of V on it). Idle contacts: σ = 1e-7 S/m
 (insulating, as in 2D) or, by parameter, floating metal. Cuff contacts are flat (rigid electrode)
-and pressed 10 µm into the nerve so that the whole face touches it (a flat 200 µm face on the circle
-departs from it by 2.9 µm at its edges). No shank body (group: contacts only for now).
+and pressed into the nerve so that the whole face touches it (until 2026-11-22: 10 µm at the centre
+on the circle, where a flat 200 µm face departs from it by 2.9 µm at its edges; now placed on the
+oval as in D-11). No shank body (group: contacts only for now).
 Alternatives: contact faces as boundaries with an imposed current density (not equipotential); the
 real gold conductivity (ill-conditioned matrix).
 Why / source: same physics as the 2D model (equipotential contact, idle contacts insulating);
@@ -157,3 +162,47 @@ Why / source: group request (upper arm, 10 fascicles, no symmetry, biological va
 Consequence / limitation: circular fascicles (Brill & Tyler: 97% have circularity > 0.75); the
 spread of the sizes comes from one study of 4 nerves; whether the shank pierces or pushes the
 fascicles aside is still a question for the tutor.
+
+## D-10 — Elliptical nerve section (roundness 0.62), cuff shaped on it  (2026-11-22, phases 1, 3)
+Decision: the nerve section is an ellipse with the literature area (9.20 mm²) and minor/major axis
+ratio 0.62: semi-axes R/√0.62 × R·√0.62 = 2.173 × 1.347 mm (R = 1.711 mm, the old equivalent
+circle). Major axis along x of the electrode frame (`p.geometry.generator.nerveRotation_deg = 0`
+`[assumed]`). The fascicle generator (D-09) packs the same 10 fascicles inside the oval, with the
+same gaps, measured as distance from the elliptical boundary; patient UA01 (seed 1) therefore has a
+new layout. The rigid cuff is tight on the native oval (D-05). `nerveShape = "circle"` gives back
+the round nerve. Code: `src/geometry/generateFascicleLayout.m`, `ellipseQ.m`, `nerveOutline.m`,
+`src/mesh/buildNerveGeometry3D.m` (decsg ellipse); the viewer reads `nerveAxes` / `nerveRotation`.
+Alternatives: (i) circle (the first 3D model: a rigid round cuff would force the nerve round);
+(ii) Marco's "personal" model (branch `cuff-oval-viewer-convergence`): same oval, but one fixed,
+hand-written fascicle template and a separate Gmsh pipeline — not taken, because phase 6 needs
+seeded virtual patients and the group would need Python + gmsh.
+Why / source: group (user, 2026-11-22), after Marco's branch. Roundness 0.62 = Pusnik 2025, Table 1,
+histological mean at mid-arm, **as cited on Marco's branch: TO VERIFY against the paper (not in
+`Papers/` yet)**. An ellipse with b/a = k also has ImageJ roundness 4A/(π·major²) = k, so the value
+does not depend on which of the two definitions the paper uses.
+Consequence / limitation: the orientation of the device on the nerve is unknown (question for the
+tutor; it decides which cuff pads face the flat sides and which the curved ends). The fascicles are
+still circles and the section is still the same along z (D-03). The muscle now extends to
+3 × the major semi-axis (6.5 mm instead of 3R = 5.1 mm).
+
+## D-11 — Rigid flat cuff pads tangent to the oval; the nerve conforms, the electrode does not bend  (2026-11-22, phase 3)
+Decision: each cuff pad keeps its angle θ from `sites.mat` as a landmark on the native outline; its
+face is tangent to the outline there (normal = ellipse normal, up to 24° from radial at θ = 45° on
+this oval) and is pushed along that normal until both side edges of the 200 µm face are
+`p.electrode.cuffEdgeIndent_m` = 7 µm `[assumed]` below the native surface. The centre of the face
+is then deeper by the local sagitta (1.4 µm on the flat sides, 6.0 µm at the ends of the major
+axis): 8.4–13 µm. In the geometry the pad box replaces the tissue in front of its face (Boolean
+union), so the nerve surface under the pad is the flat face. Shank contacts stay at the tutor's
+positions ("pierce", D-09): no deflection of the shank. Code: `src/electrode/placeCuffContacts.m`,
+test `tests/testCuffContacts.m`.
+Alternatives: (i) Marco's deformed surface: the tissue is displaced onto the pad with smooth
+shoulders (0.4 mm along z, 0.12 mm across), meshed with Gmsh — same contact face, the difference is
+a sliver a few µm deep around the pad, at the cost of a second meshing pipeline; (ii) Marco's
+shank "deflect" scenario (the shank bends around the fascicles): rejected by the group ("the
+electrodes don't bend"); (iii) pads pressed radially (the old circle rule) — on an oval the face
+would not be tangent to the nerve away from the axes.
+Why / source: group (user, 2026-11-22): rigid electrode, the nerve conforms. Edge depth 7 µm keeps
+the old 10 µm at the centre on a circle and avoids slivers of tissue thinner than ~7 µm (mesh).
+Consequence / limitation: no tissue mechanics: the indentation is geometric, not a pressure (Marco
+lists the closing force / pad gap as a tutor question). The few µm of tissue under the face are
+removed rather than compressed.

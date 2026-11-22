@@ -1,6 +1,7 @@
-function [K, vol_m3] = assembleConductionP1(nodes_m, tets, sigma_Spm)
+function [K, vol_m3] = assembleConductionP1(nodes_m, tets, sigma_Spm, blockSize)
 %ASSEMBLECONDUCTIONP1 Stiffness matrix of div(sigma grad V) = 0 on linear tetrahedra.
 %   [K, vol_m3] = assembleConductionP1(nodes_m, tets, sigma_Spm)
+%   [K, vol_m3] = assembleConductionP1(nodes_m, tets, sigma_Spm, blockSize)
 %
 %   Standard P1 finite elements: on each tetrahedron V is linear, grad(lambda_i) is constant and
 %   K_e(i,j) = vol * grad(lambda_i)' * S * grad(lambda_j), with S = diag(sigma_x, sigma_y, sigma_z)
@@ -12,6 +13,9 @@ function [K, vol_m3] = assembleConductionP1(nodes_m, tets, sigma_Spm)
 %     nodes_m    3 x nNodes node coordinates [m]
 %     tets       4 x nElem node indices of each linear tetrahedron
 %     sigma_Spm  3 x nElem (or 3 x 1, same for all) conductivities [S/m]: sigma_x, sigma_y, sigma_z
+%     blockSize  optional: assemble at most this many elements at a time and sum the blocks (same
+%                result; the temporary 16 x nElem arrays of a 3-million-element mesh take ~1 GB
+%                each otherwise). Default Inf = one block. (From Marco's branch, 2026-11-22.)
 %
 %   Outputs
 %     K       nNodes x nNodes sparse stiffness matrix [S]: K*V = injected currents [A]
@@ -21,11 +25,22 @@ arguments
     nodes_m (3,:) double
     tets (4,:) {mustBeInteger, mustBePositive}
     sigma_Spm (3,:) double
+    blockSize (1,1) double {mustBePositive} = Inf
 end
 
 nN = size(nodes_m, 2);   nE = size(tets, 2);
 if size(sigma_Spm, 2) == 1, sigma_Spm = repmat(sigma_Spm, 1, nE); end
 assert(size(sigma_Spm, 2) == nE, 'assembleConductionP1:sigma', 'sigma must be 3 x 1 or 3 x nElem.');
+
+if nE > blockSize                                     % same formula, block by block
+    K = sparse(nN, nN);   vol_m3 = zeros(1, nE);
+    for first = 1:blockSize:nE
+        blk = first:min(first + blockSize - 1, nE);
+        [Kb, vol_m3(blk)] = assembleConductionP1(nodes_m, tets(:, blk), sigma_Spm(:, blk));
+        K = K + Kb;                                   % contributions add up at shared nodes
+    end
+    return
+end
 
 p1 = nodes_m(:, tets(1,:));
 a = nodes_m(:, tets(2,:)) - p1;   b = nodes_m(:, tets(3,:)) - p1;   c = nodes_m(:, tets(4,:)) - p1;

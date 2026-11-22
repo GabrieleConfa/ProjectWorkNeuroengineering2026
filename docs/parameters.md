@@ -41,7 +41,9 @@ All ± are SEM over blocks of a **single** nerve.
 
 | Quantity | Value | Source | Status |
 |---|---|---|---|
-| Nerve area (circle, R = 1.711 mm) | 9.20 mm² | Pusnik 2025 (PW6 group document) | chosen (D-09) |
+| Nerve area (equivalent circle R = 1.711 mm) | 9.20 mm² | Pusnik 2025 (PW6 group document) | chosen (D-09) |
+| Nerve shape: ellipse, roundness (minor/major) | 0.62 → semi-axes 2.173 × 1.347 mm | Pusnik 2025 Table 1 (histology, mid-arm), as cited on Marco's branch — **to verify, paper not in `Papers/`** | chosen (D-10) |
+| Orientation of the nerve oval in the electrode frame | major axis along x (0°) | assumed — ask tutor | open (D-10) |
 | Number of fascicles | 10 | Pusnik 2025 | chosen (D-09) |
 | Total fascicle (endoneurium) area | 5.01 mm² | Pusnik 2025 | chosen (D-09) |
 | Largest fascicle | 1.49 mm² | Pusnik 2025 / PW6 (Delgado-Martínez cluster C) | chosen (D-09) |
@@ -50,8 +52,9 @@ All ± are SEM over blocks of a **single** nerve.
 | Gap between fascicles / to nerve surface | 25 µm / 40 µm | assumed (mesh) | to test |
 | Perineurium thickness → sheet resistance | 14 µm → ρ·t = 159 Ω·cm² (thin layer) | PW6 / Horn 2023; Zelechowski σ | chosen (D-06) |
 | Nerve / cuff length | 70 mm / 50 mm, cuff centred on the contacts | group | chosen (D-02) |
-| Cuff wall | insulating void, 0.5 mm thick | thickness assumed — ask tutor | open (D-05) |
-| Cuff-contact indentation | 10 µm (> 2.9 µm sagitta of a 200 µm face) | assumed | to test (D-07) |
+| Cuff wall | insulating void, 0.5 mm thick, shaped on the oval | thickness assumed — ask tutor | open (D-05) |
+| Cuff-pad indentation at the face edges | 7 µm → 8.4–13 µm at the face centre (+ local sagitta) | assumed (was 10 µm at the centre on the circle) | to test (D-11) |
+| Muscle (outer, grounded) radius | 3 × major semi-axis = 6.5 mm | as 2D (3R), adapted to the oval | chosen (D-10) |
 | Contact conductivity (numerical) / idle contacts | 1e3 S/m / 1e-7 S/m (insulating) | numerical stand-ins | to test (D-07) |
 | End planes z = ±35 mm | grounded | assumed | to compare with insulated (D-04) |
 | Mesh sizes (contacts / fascicles / nerve / outside fine zone / muscle) | 30 / 100 / 150 / 500 / 1200 µm | first guess | convergence study (D-08) |

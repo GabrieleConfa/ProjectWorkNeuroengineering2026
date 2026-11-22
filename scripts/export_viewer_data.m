@@ -16,8 +16,9 @@
 %   scripts but not fetch files; the voxel arrays are base64 strings inside them.
 %
 % How V, E, J are sampled
-%   Grid: x, y from -R to +R every gridStepXY_m, z over |z| <= zHalfSpan_m every gridStepZ_m; points
-%   outside the nerve (r > R) get code 0 = "no data". Each grid point is located in the mesh AFTER the
+%   Grid: x, y over the bounding box of the nerve ellipse every gridStepXY_m, z over |z| <= zHalfSpan_m
+%   every gridStepZ_m; points outside the nerve ellipse get code 0 = "no data". Each grid point is
+%   located (locateRegularGrid, among the nerve and contact elements) in the mesh AFTER the
 %   thin-layer node duplication (out.mesh), so a point inside a fascicle takes the endoneurium-side
 %   value (see interpolateP1). V is interpolated linearly (P1). E and J are constant in each linear
 %   tetrahedron, so they are taken from the element that contains the point: this is the exact FE
@@ -37,8 +38,8 @@
 %   threshold, phase 5).
 %
 % Run: setup_paths; export_viewer_data      (then open viewer/index.html in Chrome/Edge/Firefox)
-% Time: locating the grid in the mesh ~13 min the first time (cached in results/viewer/<id>/ for
-% later exports of the same run), then a few seconds per contact.
+% Time: locating the grid in the mesh the first time (cached in results/viewer/<id>/ for later
+% exports of the same run; was ~13 min with pointLocation), then a few seconds per contact.
 
 clear;
 root = fileparts(fileparts(mfilename('fullpath')));
@@ -60,35 +61,46 @@ elemTissue = out.cells.tissue(elemCell);   elemTissue = elemTissue(:)';
 elemSite   = out.cells.site(elemCell);     elemSite = elemSite(:)';
 p = out.params;   patient = out.patient;   sites = out.sites;   res = out.results;
 R = patient.nerveRadius_m;   F = patient.fascicles;
+if isfield(patient, 'nerveSemiAxes_m')                  % elliptical nerve (D-10)
+    ax = patient.nerveSemiAxes_m;   rotN = patient.nerveRotation_deg;
+else                                                    % result saved before 2026-11-22: circle
+    ax = [R R];   rotN = 0;
+end
 outDir = fullfile(root, 'results', 'viewer', patientId);
 if ~exist(outDir, 'dir'), mkdir(outDir); end
 
 %% ===== GRID AND LOCATION IN THE MESH ==================================================
-nxh = ceil(R / gridStepXY_m);   xs = (-nxh:nxh) * gridStepXY_m;   ys = xs;
+% the grid covers the bounding box of the (rotated) ellipse
+extX = hypot(ax(1) * cosd(rotN), ax(2) * sind(rotN));   extY = hypot(ax(1) * sind(rotN), ax(2) * cosd(rotN));
+nxh = ceil(extX / gridStepXY_m);   xs = (-nxh:nxh) * gridStepXY_m;
+nyh = ceil(extY / gridStepXY_m);   ys = (-nyh:nyh) * gridStepXY_m;
 nzh = round(zHalfSpan_m / gridStepZ_m);   zs = (-nzh:nzh) * gridStepZ_m;
-[GX, GY, GZ] = ndgrid(xs, ys, zs);          % x varies fastest = layout of a WebGL 3D texture
-inNerve = GX.^2 + GY.^2 < R^2;
-P = [GX(inNerve), GY(inNerve), GZ(inNerve)];
-clear GX GY GZ
+[GX, GY] = ndgrid(xs, ys);
+inNerve2 = reshape(ellipseQ([GX(:) GY(:)], ax, rotN) < 1, size(GX));
+inNerve = repmat(inNerve2, 1, 1, numel(zs));           % x varies fastest = layout of a WebGL 3D texture
+clear GX GY
 fprintf('Grid %d x %d x %d (%.1f M voxels, %.2f M inside the nerve): locating in the mesh...\n', ...
-        numel(xs), numel(ys), numel(zs), numel(inNerve)/1e6, size(P, 1)/1e6);
-% Locating ~1 M points in ~3 M tetrahedra takes minutes (13 min on a laptop), and depends only on
-% the mesh and the grid: it is cached and reused as long as both are unchanged (same run).
+        numel(xs), numel(ys), numel(zs), numel(inNerve)/1e6, nnz(inNerve)/1e6);
+% Locating ~1 M points in ~3 M tetrahedra depends only on the mesh and the grid: it is cached and
+% reused as long as both are unchanged (same run). locateRegularGrid searches only the nerve and
+% contact elements (the grid points are all inside the nerve).
 cacheFile = fullfile(outDir, 'gridLocation_cache.mat');
-key = [size(X, 2), size(T, 2), sum(X(:)), numel(xs), numel(zs), gridStepXY_m, gridStepZ_m];
+key = [size(X, 2), size(T, 2), sum(X(:)), numel(xs), numel(ys), numel(zs), gridStepXY_m, gridStepZ_m];
 tic;
 cached = false;
 if isfile(cacheFile)
     C = load(cacheFile);
-    cached = isequal(C.key, key);
+    cached = isequal(C.key, key) && isfield(C, 'created') && C.created == out.created;
 end
 if cached
     tetId = C.tetId;   bary = C.bary;
     fprintf('   reused the cached location (%s)\n', cacheFile);
 else
-    tr = triangulation(T', X');
-    [tetId, bary] = pointLocation(tr, P);
-    save(cacheFile, 'key', 'tetId', 'bary', '-v7.3');
+    nerveEl = find(ismember(elemTissue, [1 3 5]));
+    [tl_, bary] = locateRegularGrid(X, T(:, nerveEl), {xs, ys, zs}, inNerve);
+    tetId = nan(size(tl_));   tetId(~isnan(tl_)) = nerveEl(tl_(~isnan(tl_)));
+    created = out.created;
+    save(cacheFile, 'key', 'created', 'tetId', 'bary', '-v7.3');
 end
 clear C
 found = ~isnan(tetId);
@@ -123,9 +135,12 @@ for k = 1:height(sites)
                'centre', toMm(sites.centre_m(k, :)), 'n', round(sites.n(k, :), 6), ...
                'w', round(sites.w(k, :), 6), 'thickness', toMm(sites.thickness_m(k)), ...
                'sideXY', toMm(sites.sideXY_m(k)), 'sideZ', toMm(sites.sideZ_m(k)), ...
-               'solved', ~isempty(j), 'location', "", 'R_kOhm', NaN);
+               'solved', ~isempty(j), 'location', "", 'R_kOhm', NaN, 'indent_um', NaN);
     if ~isempty(j)
         s.location = res.location(j);   s.R_kOhm = round(res.R_kOhm(j), 3);
+    end
+    if isfield(out, 'cuffFit') && any(out.cuffFit.id == sites.id(k))   % depth of the pad face centre
+        s.indent_um = round(out.cuffFit.centreIndent_m(out.cuffFit.id == sites.id(k)) * 1e6, 2);
     end
     siteList{k} = s;
 end
@@ -138,9 +153,10 @@ model = struct( ...
     'patient', struct('id', patient.id, 'seed', patient.seed, 'level', string(patient.level), ...
                       'nInner', patient.generatorInfo.nInner), ...
     'units', "mm; fields for a 1 uA monopolar stimulus (return = grounded outer boundary)", ...
-    'nerveRadius', toMm(R), 'nerveLength', toMm(p.domain.nerveLength_m), ...
+    'nerveRadius', toMm(R), 'nerveAxes', toMm(ax), 'nerveRotation', rotN, ...
+    'nerveLength', toMm(p.domain.nerveLength_m), ...
     'cuff', struct('length', toMm(p.cuff.length_m), 'wall', toMm(p.cuff.wallThickness_m)), ...
-    'outerRadius', toMm(p.domain.outerRadiusFactor * R), ...
+    'outerRadius', toMm(p.domain.outerRadiusFactor * max(ax)), ...
     'fascicles', {fascList}, 'sites', {siteList}, 'solvedIds', solved, ...
     'grid', struct('nx', numel(xs), 'ny', numel(ys), 'nz', numel(zs), 'x0', toMm(xs(1)), ...
                    'y0', toMm(ys(1)), 'z0', toMm(zs(1)), 'dx', toMm(gridStepXY_m), ...

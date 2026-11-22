@@ -14,7 +14,10 @@ function patient = makePatient(id, seed, params)
 %
 %   Output: struct
 %     id, seed, level
-%     nerveRadius_m   nerve radius [m]
+%     nerveRadius_m   equivalent nerve radius sqrt(area/pi) [m] (the radius for a circle)
+%     nerveShape      "ellipse" | "circle" (D-10)
+%     nerveSemiAxes_m [a b] [m], a along nerveRotation_deg (a = b = nerveRadius_m for a circle)
+%     nerveRotation_deg  angle of the first semi-axis from x [deg]
 %     fascicles       table: x_m, y_m, rEndo_m, tPeri_m  [m] (anatomical values; the 3D model may
 %                     draw a thicker perineurium, see params.perineurium)
 %     generatorInfo   restarts / iterations / inner fascicles (generated case only)
@@ -32,7 +35,8 @@ if isnan(seed)                                        % tutor's fixed section P0
     ts = params.geometry.tutorSection;
     f = ts.fascicles_m;
     patient = struct('id', id, 'seed', seed, 'level', "tutor section P00", ...
-        'nerveRadius_m', ts.nerveRadius_m, ...
+        'nerveRadius_m', ts.nerveRadius_m, 'nerveShape', "circle", ...
+        'nerveSemiAxes_m', ts.nerveRadius_m * [1 1], 'nerveRotation_deg', 0, ...
         'fascicles', table(f(:,1), f(:,2), f(:,3), repmat(ts.tPeri_m, size(f,1), 1), ...
                            'VariableNames', {'x_m', 'y_m', 'rEndo_m', 'tPeri_m'}), ...
         'generatorInfo', struct());
@@ -45,9 +49,10 @@ sites = loadActiveSites(params.electrode.sitesFile, R);
 footprints = shankFootprints(sites, params.electrode.thicknessOverride_m);
 
 rng(seed, 'twister');
-[R, fasc, info] = generateFascicleLayout(gen, params.perineurium, footprints);
+[R, fasc, info, nerve] = generateFascicleLayout(gen, params.perineurium, footprints);
 patient = struct('id', id, 'seed', seed, 'level', string(gen.level), 'nerveRadius_m', R, ...
-                 'fascicles', fasc, 'generatorInfo', info);
+                 'nerveShape', nerve.shape, 'nerveSemiAxes_m', nerve.semiAxes_m, ...
+                 'nerveRotation_deg', nerve.rotation_deg, 'fascicles', fasc, 'generatorInfo', info);
 end
 
 function fp = shankFootprints(sites, thickness_m)

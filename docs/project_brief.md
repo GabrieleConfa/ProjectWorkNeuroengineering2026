@@ -53,4 +53,7 @@ The project is organised in consecutive phases.
 - Does the shank pierce the fascicles it crosses (perineurium cut) or push them aside? (3D model:
   "pierce" by default, D-09.)
 - Cuff wall: thickness and material (3D model: insulating, 0.5 mm assumed, D-05).
+- Orientation of the device on the oval nerve: which cuff pads face the flat sides and which the
+  curved ends (3D model: major axis along x, assumed, D-10). Closing force or pad gap of the cuff
+  (3D model: rigid pads pressed 7 µm at the face edges, geometric, D-11).
 - Deliverable format (written report, presentation, code) and deadline.

@@ -55,7 +55,7 @@ runtests('tests')           % verification tests: all must pass before pushing
 
 ### Just looking at the results: the 3D viewer (no MATLAB needed)
 
-The data of the last simulation (patient UA01, station −4) are in the repository, so after cloning
+The data of the last simulation (patient UA01 with the oval nerve, station −4) are in the repository, so after cloning
 you can **double-click `viewer/index.html`**. It opens in Chrome, Edge or Firefox, from disk, also
 offline.
 
@@ -73,16 +73,19 @@ offline.
 What the four quantities show (all for a monopolar stimulus of 1 µA; the "Current" box rescales
 the colour bar, the model being linear):
 
-- **V**, potential [mV]: highest at the contact, but the whole nerve sits at 1.5–4 mV because the
-  insulating cuff forces the current along the nerve. A contact in a fascicle has a *lower* V than
-  one in the epineurium: it injects the same current through a lower resistance.
+- **V**, potential [mV]: highest at the contact, but the whole nerve sits at 1.5–5 mV because the
+  insulating cuff forces the current along the nerve. The potential of the contact (= its access
+  resistance × I) depends on where it sits: lowest inside a large fascicle (AS 4 in F1: 9.1 kΩ),
+  higher inside a small one (AS 2 in F7: 11.5 kΩ, the resistive perineurium is close), highest on
+  the cuff (27–30 kΩ: one face only, and the current must run along the insulated nerve).
 - **|E|**, field [V/m], and **|J|**, current density [µA/mm²], both on a log scale: |J| shows where
   the current flows. Current injected inside a fascicle is kept there by the perineurium and runs
   along the fascicle.
 - **AF**, activating function [V/m²]: −∂²V/∂z² over one internode (1 mm), i.e. for a cathodic pulse,
   shown only inside the fascicles and only where it depolarises. **This is what decides whether a
   fibre fires**, so it is the view that answers the project question: a contact inside a fascicle
-  drives that fascicle strongly and the others little (AS 2: 26× more than the next fascicle).
+  drives that fascicle strongly and the others little (AS 2 in F7: 58× more than the next
+  fascicle; the cuff pads only 2–3.5×).
 
 Colours are scaled per contact (each contact's own range): to compare contacts, read the numbers
 on the colour bar. A link can open a prepared view, e.g.
@@ -154,11 +157,14 @@ setup_paths; main_pipeline_3d       % or open src/main/main_pipeline_3d.m and pr
 
 What it does, in order (explained step by step in [docs/model_3d.md](docs/model_3d.md)):
 
-1. generates the virtual patient (10 fascicles, mid-upper arm, from the literature) and saves it in
-   `data/patients/<id>.mat`;
-2. builds the 3D geometry: nerve 70 mm, insulating cuff 50 mm, the 48 contacts (≈ 3 min);
-3. meshes it with linear tetrahedra (≈ 1 min, ≈ 3 M elements);
-4. assembles and solves the FE problem once per selected contact with 1 A (≈ 2.5 min per contact,
+1. generates the virtual patient (oval nerve 4.35 × 2.69 mm, roundness 0.62; 10 fascicles,
+   mid-upper arm, from the literature) and saves it in `data/patients/<id>.mat`;
+2. builds the 3D geometry: nerve 70 mm, insulating cuff 50 mm shaped on the oval, the 48 contacts
+   (≈ 4 min). The cuff pads are rigid and flat: tangent to the oval and pressed in until the whole
+   face touches the nerve (the nerve conforms, the electrode does not bend); the shank contacts
+   stay at the tutor's positions;
+3. meshes it with linear tetrahedra (≈ 2 min, ≈ 4.6 M elements);
+4. assembles and solves the FE problem once per selected contact with 1 A (≈ 3.5 min per contact,
    several GB of RAM), with the perineurium as a thin resistive layer;
 5. saves `results/main3d/<id>_3d.mat` (mesh + potentials) and the figures `results/main3d/*.png`.
 
@@ -168,6 +174,8 @@ change most:
 | Parameter | Default | Meaning |
 |---|---|---|
 | `p.patient.id`, `p.patient.seed` | `"UA01"`, `1` | which virtual patient (same seed = same patient) |
+| `p.geometry.generator.nerveShape`, `.nerveRoundness`, `.nerveRotation_deg` | `"ellipse"`, `0.62`, `0` | nerve section (`"circle"` = the first, round model) and orientation of the oval in the electrode frame |
+| `p.electrode.cuffEdgeIndent_m` | 7 µm | how deep the edges of a rigid cuff pad press into the nerve |
 | `p.solve3d.sections` | `-4` | stations whose contacts are solved; `[]` = all 48 contacts (≈ 2 h) |
 | `p.domain.endBC` | `"ground"` | end planes grounded or `"insulated"` |
 | `p.mesh3d.h*_m` | 30 µm … 1.2 mm | element sizes |
@@ -175,7 +183,7 @@ change most:
 Then, to see the new results in the viewer:
 
 ```matlab
-setup_paths; export_viewer_data     % ≈ 15 min the first time (cached afterwards), then seconds per contact
+setup_paths; export_viewer_data     % a few seconds per contact
 ```
 
 It rewrites `results/viewer/<id>/` (one `AS<k>.js` per solved contact) and prints, for each contact,

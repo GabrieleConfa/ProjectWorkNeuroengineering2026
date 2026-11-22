@@ -48,6 +48,10 @@ elemTissue = out.cells.tissue(elemCell)';
 elemFasc   = out.cells.fascicle(elemCell)';
 elemSite   = out.cells.site(elemCell)';
 patient = out.patient;   R = patient.nerveRadius_m;   F = patient.fascicles;   nF = height(F);
+if isfield(patient, 'nerveSemiAxes_m'), nAx = patient.nerveSemiAxes_m;   rotN = patient.nerveRotation_deg;
+else, nAx = [R R];   rotN = 0;                        % results saved before the oval (2026-11-22)
+end
+R = max(nAx);                                         % half-size of the drawn planes
 p = out.params;   sites = out.sites;
 zc = mean(reshape(X(3, T), 4, []), 1);                 % element centroids along z
 inSlab = zc >= zRange_mm(1)*mm & zc <= zRange_mm(2)*mm;
@@ -99,12 +103,13 @@ end
 if showCuff                                             % analytic tube: the wall is not meshed
     zc1 = max(zRange_mm(1), -p.cuff.length_m/2/mm);   zc2 = min(zRange_mm(2), p.cuff.length_m/2/mm);
     if zc2 > zc1
-        [th, zz] = meshgrid(linspace(0, 2*pi, 90), [zc1 zc2]);
-        Ro = (R + p.cuff.wallThickness_m) / mm;
-        surf(ax, Ro*cos(th), Ro*sin(th), zz, FaceColor=[0.3 0.3 0.3], FaceAlpha=0.08, EdgeColor="none");
+        co = nerveOutline(nAx + p.cuff.wallThickness_m, rotN, 90) / mm;   co = co([1:end 1], :);
+        ni = nerveOutline(nAx, rotN, 90) / mm;                            ni = ni([1:end 1], :);
+        surf(ax, [co(:,1) co(:,1)]', [co(:,2) co(:,2)]', repmat([zc1; zc2], 1, size(co, 1)), ...
+             FaceColor=[0.3 0.3 0.3], FaceAlpha=0.08, EdgeColor="none");
         for zEnd = [zc1 zc2]                            % rings at the ends of the drawn wall
-            plot3(ax, Ro*cos(th(1,:)), Ro*sin(th(1,:)), zEnd*ones(1, 90), '-', Color=[0.3 0.3 0.3]);
-            plot3(ax, R/mm*cos(th(1,:)), R/mm*sin(th(1,:)), zEnd*ones(1, 90), '-', Color=[0.3 0.3 0.3]);
+            plot3(ax, co(:,1), co(:,2), zEnd*ones(size(co, 1), 1), '-', Color=[0.3 0.3 0.3]);
+            plot3(ax, ni(:,1), ni(:,2), zEnd*ones(size(ni, 1), 1), '-', Color=[0.3 0.3 0.3]);
         end
     end
 end
@@ -130,7 +135,8 @@ if ~isempty(potentialSite)
     [sg, zg] = meshgrid(linspace(-1.25, 1.25, n) * R, linspace(zRange_mm(1), zRange_mm(2), 2*n) * mm);
     Vl = reshape(interpolateP1(tr, u, [sg(:)*er(1), sg(:)*er(2), zg(:)]), size(sg));
     if ~planesOutside                                   % nerve only
-        Vx(hypot(xg, yg) > R) = NaN;   Vl(abs(sg) > R) = NaN;
+        Vx(reshape(ellipseQ([xg(:) yg(:)], nAx, rotN), size(xg)) > 1) = NaN;
+        Vl(abs(sg) > 1 / sqrt(ellipseQ(er(1:2), nAx, rotN))) = NaN;     % nerve boundary along er
     end
     lim = prctile([Vx(:); Vl(:)], [1 99.5]) / 1e-3;
 

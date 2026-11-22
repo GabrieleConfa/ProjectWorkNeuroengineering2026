@@ -33,25 +33,28 @@ variation along the nerve) cannot be computed. See `architecture.md` §2.
 
 ```
              z = -35          -25                     0                     +25          +35  [mm]
-muscle    |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|  r up to 3R
-cuff wall               |#############################################|                         R ... R+0.5 mm, insulating
-nerve     |==================================================================================|  r < R = 1.711 mm
+muscle    |~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~|  r up to 3a = 6.5 mm
+cuff wall               |#############################################|                         nerve oval + 0.5 mm, insulating
+nerve     |==================================================================================|  ellipse a x b = 2.173 x 1.347 mm
 contacts                          |  8 stations, z = ±4.3 ... ±10.3  |
 ```
 
-- **Nerve**: a circular cylinder of radius R = 1.711 mm (area 9.20 mm²), 70 mm long, containing
-  10 fascicles generated from the literature (§5). Same cross-section at every z.
+- **Nerve**: an elliptical cylinder (since 2026-11-22, D-10): semi-axes a = 2.173 mm (along x) and
+  b = 1.347 mm, area 9.20 mm² (the old circle had R = 1.711 mm), roundness b/a = 0.62; 70 mm long,
+  containing 10 fascicles generated from the literature (§5). Same cross-section at every z.
 - **Fascicle** = endoneurium (where the fibres are; conducts ≈ 7× better along z than across)
   wrapped in the **perineurium** (14 µm, very resistive: the main barrier for current entering or
   leaving a fascicle). Between fascicles: **epineurium** (connective tissue).
-- **Cuff**: a rigid insulating tube, 50 mm long, tight on the nerve, centred on the contacts.
-  Inside it, current cannot leave the nerve sideways — it must travel along the nerve and exit at
-  the cuff ends.
+- **Cuff**: a rigid insulating tube shaped on the oval, 50 mm long, tight on the nerve, centred on
+  the contacts. Inside it, current cannot leave the nerve sideways — it must travel along the nerve
+  and exit at the cuff ends.
 - **Contacts**: 48 gold boxes 50 × 200 × 200 µm: per station, 4 on the shank that crosses the nerve
-  (r = 0.3 and 0.9 mm) and 2 on the inner surface of the cuff. Only the boxes are modelled, not
-  the shank body.
-- **Muscle** around everything, up to 3R; its outer surface (and the two end planes) is the
-  electrical ground (V = 0) — the return electrode is "far away".
+  (r = 0.3 and 0.9 mm, the tutor's positions; the rigid shank is not deflected) and 2 on the inner
+  surface of the cuff. The cuff pads are rigid and flat: tangent to the oval and pressed into it
+  until the whole face touches the nerve (§2.6, D-11). Only the boxes are modelled, not the shank
+  body.
+- **Muscle** around everything, up to 3 × the major semi-axis; its outer surface (and the two end
+  planes) is the electrical ground (V = 0) — the return electrode is "far away".
 
 **The equation.** At stimulation frequencies the tissues behave as resistors (quasi-static):
 charge is conserved and J = −σ∇V, so
@@ -159,6 +162,42 @@ rule is kept as `"pushAside"` for comparison. **Question for the tutor** (in `pr
 - **Idle contacts insulating** (σ = 1e-7 S/m), as in 2D; `"floating"` is available as an option.
 - **Cuff wall = void**: deleting the cells gives an exact insulator and no elements.
 - **Ground**: outer muscle surface + end planes (option: insulated ends).
+
+### 2.6 The oval nerve and the rigid cuff pads (2026-11-22, D-10, D-11)
+
+Marco's branch `cuff-oval-viewer-convergence` built a second model with an oval nerve and cuff pads
+fitted to it. The group took two ideas from it into this model, without its separate pipeline:
+
+- **Oval section.** The median nerve at mid-arm is not round: histology gives a roundness (minor /
+  major axis) of 0.62 (Pusnik 2025 Table 1 as cited by Marco — to verify). Same area as before,
+  so the semi-axes are R/√0.62 = 2.173 mm and R·√0.62 = 1.347 mm. The fascicle generator packs the
+  fascicles inside the oval with the same gaps (distance from the elliptical boundary, §5), so the
+  virtual patients and their seeds are kept. `nerveShape = "circle"` gives back the old model.
+- **Rigid flat cuff pads; the nerve conforms.** A flat pad cannot touch a curved nerve with its
+  whole face unless the nerve is pressed in. `placeCuffContacts` puts each pad at its angle θ from
+  `sites.mat`, with the face tangent to the oval there, and pushes it in along that normal until
+  both side edges are 7 µm below the native surface. The face centre is then 8.4–13 µm deep
+  (deeper where the oval is more curved, at the ends of the major axis). In the geometry the pad box
+  simply replaces that thin layer of tissue, so the nerve surface under the pad *is* the flat
+  face. On an oval the tangent face is tilted from the radial direction except on the two axes (up
+  to ≈ 24° for the pads at 45°): pressing radially, as on the circle, would put the face at an angle
+  to the nerve surface.
+
+```
+        rigid pad (face flat)                 native oval
+      ┌───────────────────────┐            .-'''''''-.
+ ─────┴───────────────────────┴─────     .'           '.     the face is tangent to the oval at
+        \_ edge 7 µm deep _/             :  nerve        :    the landmark and pushed in along
+           centre 8–13 µm                '.             .'    the normal: the nerve conforms,
+                                           '-.......-'        the electrode does not bend
+```
+
+What was **not** taken from the branch: the shank "deflect" scenario (the shank bends around the
+fascicles; here the shank is rigid and its contacts stay at the tutor's positions), the fixed
+fascicle template (one patient only), the Gmsh pipeline with smooth shoulders around the pads
+(a few µm of difference, a second mesher for the whole group). Taken as helpers: block-wise
+assembly (`assembleConductionP1(..., blockSize)`), the pcg convergence check, the fallback path to
+`sites.mat`, the regular-grid locator for the viewer export (`locateRegularGrid`).
 
 ---
 
@@ -578,9 +617,11 @@ contacts: too large for GitHub) and the location cache are regenerated locally.
 **How the data are sampled (and why so).**
 - Every grid point inside the nerve is located in the mesh *after* the thin-layer node duplication,
   so a point inside a fascicle takes the endoneurium-side value, as in `interpolateP1`. Locating
-  ~0.9 M points takes ≈ 13 min; the result is cached (`gridLocation_cache.mat`), so re-exporting
-  the same run is fast. About 0.3% of the points (next to the nerve surface, where the meshed
-  polygon lies inside the true circle) are not in the mesh and are left empty.
+  ~0.9 M points with `locateRegularGrid` (each nerve or contact element lists the grid points in
+  its bounding box; adapted from Marco's branch) takes ≈ 4 s instead of ≈ 13 min with
+  `pointLocation`; the result is cached (`gridLocation_cache.mat`, keyed on the mesh, the grid and
+  the creation time of the solution). About 0.35% of the points (next to the nerve surface, where
+  the meshed polygon lies inside the true ellipse) are not in the mesh and are left empty.
 - V is interpolated linearly (P1). **|E| and |J| are taken from the element that contains the
   point**, where the P1 gradient is constant and exact. A finite difference on the grid would
   instead see the potential jump across the perineurium as a huge fake field on every fascicle
@@ -599,8 +640,24 @@ contacts: too large for GitHub) and the location cache are regenerated locally.
   fascicle (each grid line along z = one fibre, its maximum along z; 90th percentile per fascicle;
   10% = recruitment level of Zelechowski 2020). The single peak per fascicle is not used: it comes from
   the few fibres touching the contact edges, where the AF is nearly singular (with the peak, AS 1, half
-  in F2, would look stronger on F2 than AS 2, fully inside it). First results, patient UA01, station −4,
-  V/m² per µA:
+  in F2, would look stronger on F2 than AS 2, fully inside it). Results, patient UA01 in the oval
+  (2026-11-22, D-10/D-11), station −4, V/m² per µA:
+
+  | Contact | Most driven fascicle | Next | Ratio |
+  |---|---|---|---|
+  | AS 1 (F2 100%) | F2 3305 | F3 146 | 23 |
+  | AS 2 (F7 100%) | F7 9175 | F8 159 | 58 |
+  | AS 3 (epineurium 51%, F1 49%) | F1 1307 | F7 619 | 2.1 |
+  | AS 4 (F1 100%) | F1 2577 | F4 133 | 19 |
+  | AS 5 (cuff, top) | F8 1023 | F3 507 | 2.0 |
+  | AS 6 (cuff, bottom) | F5 1629 | F1 462 | 3.5 |
+
+  Same picture as with the circle: a contact inside a fascicle is very selective (19–58×), a contact
+  on a boundary drives two fascicles, a cuff pad drives the superficial fascicles under it but
+  spreads more (2–3.5×). The numbers are not comparable one by one with the circle run below: the
+  fascicle layout of seed 1 is different in the oval.
+
+  Circular nerve, 2026-11-13 (superseded, kept for comparison):
 
   | Contact | Most driven fascicle | Next | Ratio |
   |---|---|---|---|
@@ -686,7 +743,33 @@ tetrahedra). Their results are quoted in D-03/D-06.
 Verified: the FE assembly and the thin layer (exact tests), the generator (tests + 10 seeds
 inspected visually), and the toolbox operations used by the geometry builder (small cases).
 
-**First full run, 2026-11-13** (patient UA01, station −4, `results/main3d/UA01_3d*.png/.mat`):
+**Oval run, 2026-11-22** (D-10, D-11; patient UA01 = seed 1, new layout in the oval; station −4;
+`results/main3d/UA01_3d*.png/.mat`):
+
+| Step | Result |
+|---|---|
+| Patient | ellipse 2.173 × 1.347 mm, 10 fascicles, 3 inner (target 2 ± 1), 8 restarts |
+| Cuff pads | face centre 8.4–13.0 µm into the nerve, edges 7.0 µm; face normal up to 24.0° from radial |
+| Geometry | 108 cells (50 endo, 5 epi, 5 muscle, 48 contacts), 537 faces, 30 merges, 222 s |
+| Mesh | 863k nodes, 4.56M linear tetrahedra, 134 s (more than the circle: longer perimeter, larger muscle) |
+| Thin layer | 140k nodes duplicated; interface area 1606.7 mm² vs 1616.2 mm² expected (−0.6%) |
+| Solve | ≈ 3–3.5 min per contact (direct solver) |
+
+| Contact | Where | Access resistance | V spread on contact | Current-conservation error |
+|---|---|---|---|---|
+| AS 1 shank | F2 100% | 9.95 kΩ | 0.04% | 3e-10 % |
+| AS 2 shank | F7 100% | 11.51 kΩ | 0.04% | 5e-11 % |
+| AS 3 shank | epineurium 51%, F1 49% | 10.36 kΩ | 0.05% | 4e-11 % |
+| AS 4 shank | F1 100% | 9.07 kΩ | 0.04% | 4e-11 % |
+| AS 5 cuff (top, flat side of the oval) | nerve surface | 26.91 kΩ | 0.02% | 2e-10 % |
+| AS 6 cuff (bottom, flat side) | nerve surface | 29.64 kΩ | 0.02% | 7e-10 % |
+
+The same checks pass (conservation, equipotential contacts, access resistance ≈ 1/(4πσa)). AS 2 has
+a higher resistance than the other contacts inside a fascicle because F7 is small (r ≈ 0.27 mm):
+its current must cross the resistive perineurium sooner.
+
+**First full run (circular nerve), 2026-11-13** — superseded by the oval run above, kept for
+comparison (solution of commit 6d65036):
 
 | Step | Result |
 |---|---|

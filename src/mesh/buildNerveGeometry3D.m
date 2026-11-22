@@ -3,9 +3,10 @@ function geom = buildNerveGeometry3D(patient, sites, p)
 %   geom = buildNerveGeometry3D(patient, sites, p)
 %
 %   How it is built (docs/decisions.md D-03, explained in docs/model_3d.md §6):
-%   1. A 2D cross-section with the tissue outlines only: muscle (circle 3R), outer surface of the
-%      cuff wall (circle R + wall), nerve (circle R), fascicles (circles rEndo: the perineurium is a
-%      thin layer ON these circles, not a volume).
+%   1. A 2D cross-section with the tissue outlines only: muscle (circle of radius outerRadiusFactor
+%      x major semi-axis), outer surface of the cuff wall (ellipse with semi-axes a + wall, b + wall),
+%      nerve (ellipse a x b, D-10; a circle if a = b), fascicles (circles rEndo: the perineurium is a
+%      thin layer ON these circles, not a volume). The cuff is tight on the native oval (D-05).
 %   2. Extrusion in 5 LAYERS along z (extrude with a vector of heights): end zone, cuff zone, fine
 %      zone, cuff zone, end zone. Every 2D face becomes one cell per layer.
 %   3. The cuff wall ring is deleted inside the cuff (void = perfect insulator, so the nerve surface
@@ -13,13 +14,15 @@ function geom = buildNerveGeometry3D(patient, sites, p)
 %   4. The 48 contact boxes are inserted one by one with a 3D Boolean union that keeps the existing
 %      boundaries (union(..., KeepBoundaries=[true true])): a box crossing a fascicle boundary is
 %      split into one piece per tissue, and those pieces are merged into one contact cell. A cuff
-%      box (pressed cuffIndent into the nerve) has a thin piece inside the nerve and a piece in the
-%      deleted wall, which becomes part of the contact: the contact is embedded in the cuff wall.
+%      box (placed by placeCuffContacts: tangent to the oval, pressed a few um into the nerve) has a
+%      thin piece inside the nerve, which replaces that tissue (the nerve conforms to the rigid
+%      pad, D-11), and a piece in the deleted wall: the contact is embedded in the cuff wall.
 %
 %   Inputs
-%     patient  struct from makePatient (nerveRadius_m, fascicles table)
+%     patient  struct from makePatient (nerveRadius_m, nerveSemiAxes_m, nerveRotation_deg,
+%              fascicles table)
 %     sites    table from loadActiveSites, with the model thickness and the cuff-contact centres
-%              already set by the caller (main_pipeline_3d.m)
+%              already set by the caller (main_pipeline_3d.m, placeCuffContacts)
 %     p        parameters (config/pw6_3d_params.m)
 %
 %   Output: struct
@@ -43,25 +46,26 @@ arguments
 end
 t0 = tic;
 R  = patient.nerveRadius_m;   F = patient.fascicles;   nF = height(F);
-Rm = p.domain.outerRadiusFactor * R;
-Rc = R + p.cuff.wallThickness_m;
+ax = patient.nerveSemiAxes_m;   rot = deg2rad(patient.nerveRotation_deg);
+wall = p.cuff.wallThickness_m;
+Rm = p.domain.outerRadiusFactor * max(ax);
 L  = p.domain.nerveLength_m;   Lc = p.cuff.length_m;   zF = p.mesh3d.fineHalfLength_m;
-delta = p.electrode.cuffIndent_m;
 
 %% Checks on the contacts ------------------------------------------------------------------------
 hz = max(sites.sideZ_m) / 2;
 assert(max(abs(sites.z_m)) + hz < zF && zF < Lc/2 && Lc/2 < L/2, ...
        'Need: contacts < fine zone (%.1f mm) < cuff/2 (%.1f mm) < nerve/2 (%.1f mm).', zF*1e3, Lc/2e3, L/2e3);
 cuff = sites.type == "cuff";
-hw = max(sites.sideXY_m(cuff)) / 2;
-assert(delta > hw^2 / (2*R), 'cuffIndent_m (%.1f um) must exceed the sagitta %.1f um.', delta*1e6, hw^2/(2*R)*1e6);
-assert(all(sites.thickness_m(cuff) - delta < Rc - R), 'The cuff contacts must fit inside the cuff wall.');
+% the inner face of a cuff pad is inside the nerve, so a box thinner than the wall fits in the wall
+assert(all(sites.thickness_m(cuff) < wall), 'The cuff contacts must fit inside the cuff wall.');
+assert(Rm > max(ax) + wall, 'The muscle must extend beyond the cuff wall.');
 
 %% 2D section: tissues only -------------------------------------------------------------------------
+% decsg: circle column [1; x; y; r; 0...], ellipse column [4; x; y; a; b; angle (rad); 0...]
 gd = zeros(10, 0);   names = strings(1, 0);
 gd(:, end+1) = [1; 0; 0; Rm; zeros(6,1)];   names(end+1) = "M";
-gd(:, end+1) = [1; 0; 0; Rc; zeros(6,1)];   names(end+1) = "C";
-gd(:, end+1) = [1; 0; 0; R;  zeros(6,1)];   names(end+1) = "N";
+gd(:, end+1) = shapeColumn(ax + wall, rot);   names(end+1) = "C";
+gd(:, end+1) = shapeColumn(ax, rot);          names(end+1) = "N";
 for i = 1:nF
     gd(:, end+1) = [1; F.x_m(i); F.y_m(i); F.rEndo_m(i); zeros(6,1)];   names(end+1) = "E" + i; %#ok<AGROW>
 end
@@ -78,7 +82,7 @@ for f = 1:nF2
     else,            faceTissue(f) = 4;               % muscle
     end
 end
-facePt = interiorPoints(g2, R / 15);                  % one point safely inside every 2D face
+facePt = interiorPoints(g2, min(ax) / 15);            % one point safely inside every 2D face
 
 %% Extrusion in 5 layers ----------------------------------------------------------------------------
 planes = [-L/2, -Lc/2, -zF, zF, Lc/2, L/2];
@@ -167,6 +171,15 @@ geom = struct('g', g, 'cellTissue', cellTissue, 'cellFascicle', cellFascicle, 'c
                'Cell %d has two roles.', c);
     end
     end
+end
+
+function col = shapeColumn(semiAxes_m, rot_rad)
+%SHAPECOLUMN decsg column of a centred circle (equal semi-axes) or rotated ellipse.
+if abs(semiAxes_m(1) - semiAxes_m(2)) < 1e-12 * semiAxes_m(1)
+    col = [1; 0; 0; semiAxes_m(1); zeros(6,1)];
+else
+    col = [4; 0; 0; semiAxes_m(1); semiAxes_m(2); rot_rad; zeros(4,1)];
+end
 end
 
 function P = boxPoints(site)
