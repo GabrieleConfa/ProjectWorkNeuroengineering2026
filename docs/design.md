@@ -433,7 +433,12 @@ fibres: it sets contact currents and can only observe whole fascicles (compound 
    definition (source to find before citing);
 3. optimiser limits: maximum number of active contacts, return to ground or balanced local return,
    contact material for the charge limit;
-4. block goal (tutor): block only the fibres the proximal site fired, or the whole nerve.
+4. block goal (tutor): block only the fibres the proximal site fired, or the whole nerve;
+5. **what the stimulator can drive** (user, 2026-11-26: it may control the electrode only as a whole,
+   not contact by contact): single contacts or only groups, opposite polarities on nearby contacts,
+   number of independent channels, return electrode, pulse shapes. Questions in `project_brief.md`
+   ("How the stimulator drives the contacts"). A1 (monopolar screening) is useful in any case; A2, B1
+   and B2 must be re-scoped to what the hardware allows once this is answered.
 
 ### 7. Recording and stimulation are time-multiplexed
 The device cannot record and stimulate at the same time (the stimulus artefact saturates the

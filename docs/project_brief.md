@@ -77,6 +77,21 @@ The project is organised in consecutive phases.
     fascicle), or the whole nerve? It decides the next scheme (`design.md` §5.6, task B1);
   - (2026-11-26) the device acts on and observes whole fascicles only: is "fraction of a fascicle's
     fibres recruited / blocked" (10% criterion) the right success measure for the report?
+- **How the stimulator drives the contacts (2026-11-26, user; decides `design.md` §5.6 A2, B1, B2).**
+  It is not known whether single contacts can be addressed. To ask:
+  - can each of the 48 contacts be switched on alone, or only groups (a station, a shank, a site, the
+    whole electrode)?
+  - can two nearby contacts have **opposite polarity** at the same time (anode next to cathode), and
+    different amplitudes? How many independent current channels are there?
+  - where does the current return: a distant ground/reference electrode, the cuff pads, or other
+    contacts?
+  - which pulse shapes are possible: only rectangular biphasic (which widths), or also ramps and
+    asymmetric phases (needed for the slow-rising/slow-falling anodal pulses of task B2)?
+  - for the block: are the proximal and distal sites separate channels with an adjustable delay, and
+    what does the device actually do on the distal site (amplitude, width, timing, polarity)?
+  If only single-polarity groups can be driven, the multi-contact optimisation (A2) reduces to choosing
+  which group to switch on and at what amplitude, and the one-directional collision block (B1, cathode
+  with a distal anode) may not be feasible as planned.
 - Orientation of the device on the oval nerve: which cuff pads face the flat sides and which the
   curved ends (3D model: major axis along x, assumed, D-10). Closing force or pad gap of the cuff
   (3D model: rigid pads pressed 7 µm at the face edges, geometric, D-11).
