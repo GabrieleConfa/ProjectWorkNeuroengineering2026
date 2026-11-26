@@ -73,6 +73,10 @@ The project is organised in consecutive phases.
   - which end of the device faces the shoulder (model: z < 0, irrelevant by symmetry);
   - can the two sites be driven by independent channels with a delay, and with which pulse widths
     (anodal block needs pulses of the order of 1 ms)?
+  - (2026-11-26) the goal of the block: stop only the fibres the proximal site fired (the targeted
+    fascicle), or the whole nerve? It decides the next scheme (`design.md` §5.6, task B1);
+  - (2026-11-26) the device acts on and observes whole fascicles only: is "fraction of a fascicle's
+    fibres recruited / blocked" (10% criterion) the right success measure for the report?
 - Orientation of the device on the oval nerve: which cuff pads face the flat sides and which the
   curved ends (3D model: major axis along x, assumed, D-10). Closing force or pad gap of the cuff
   (3D model: rigid pads pressed 7 µm at the face edges, geometric, D-11).

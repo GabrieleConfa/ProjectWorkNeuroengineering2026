@@ -546,9 +546,21 @@ merges, time.
     **R = Vc/I = access resistance** of the contact (printed in kΩ).
 
 **Section 5 — results.**
+- First saves `results/main3d/<id>_3d.mat` (see the last item), **before** any figure: a slow or
+  interrupted plot must not leave `export_viewer_data` and `export_block_profiles` with an old file.
 - `plotSectionLayout`: the cross-section (fascicles labelled F1…F10, all footprints) and a
   z-schematic (nerve, cuff, muscle, stations, layer planes, fine zone).
-- `plotContactResults`, one figure per solved station, one column per contact:
+- **Sampling points located once (2026-11-26).** V is read from the FE solution in two steps: find the
+  tetrahedron containing the point (slow), then interpolate linearly with the barycentric weights
+  (P1, exact for our elements). Only the first step depends on the geometry, so it is done once:
+  `locateOnLines` for the fascicle axes (shared by all 48 contacts) and `locateOnPlane` for each
+  station's cross-section, both with `locateRegularGrid` restricted to the elements that touch the
+  line or the plane; `evalP1` then applies the stored weights to each contact's V. Same values as
+  `interpolateP1`/`pointLocation` (checked: differences ≈ 1e-15 on a test mesh), but ≈ 1 min for the 8
+  figures instead of hours (the first full run located every point again for every contact in the
+  4.5 M-element mesh, and `pointLocation` cannot be interrupted with Ctrl+C).
+- `plotContactResults`, one figure per solved station, one column per contact (each figure is
+  closed after saving):
   (1) V on the plane through the contact, for 1 µA, with outlines; title = resistance, subtitle =
   where the contact is;
   (2) V(z) on the axis of every fascicle, ±12 mm around the contact;
@@ -556,7 +568,7 @@ merges, time.
   −(V(z−Δ) − 2V(z) + V(z+Δ))/Δ². The minus sign shows it for a **cathodic** pulse, the usual way to
   excite: positive = depolarisation = where a fibre would fire first. This is a *preview* of
   phase 5, not the threshold criterion.
-- Saves `results/main3d/<id>_3d.mat` (struct `out`: params, patient, sites, results table, mesh
+- The saved `results/main3d/<id>_3d.mat` (struct `out`: params, patient, sites, results table, mesh
   after duplication, cell roles, potentials for 1 A) with `-v7.3` (large-file format).
 
 ### 8.1 The 3D viewer `scripts/view_model_3d.m`

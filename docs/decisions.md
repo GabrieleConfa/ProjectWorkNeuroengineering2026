@@ -363,3 +363,34 @@ Marco used 60 mm.
 Consequences: everything must be solved again (new mesh). Requires Python with `gmsh`
 (`python -m pip install gmsh`, or `NERVE_GMSH_PYTHON` pointing to a python.exe that has it). One
 insertion draw per station is one random sample: statistics need several seeds and patients.
+
+## D-15 — Configuration selection and block: AF search over the 48 unit solutions, MRG verification, fascicle-level outcomes  (2026-11-26, phases 5, 6, block study)
+Decision (user, 2026-11-26; full plan and order in `design.md` §5.6):
+- **Search with the activating function, verify with MRG.** Any configuration is a weighted sum of the
+  48 unit solutions (linearity, D-07), so the AF along every fibre is linear in the contact currents.
+  Configurations are searched with the AF (a linear program over the signed currents, Python/scipy);
+  every candidate is verified with the MRG fibres in NEURON (`src/block/`, D-12).
+- **Outcomes per fascicle.** The device cannot stimulate or record single fibres, only whole fascicles
+  (group, 2026-11-26). Model fibres are a population per fascicle; results, targets and constraints are
+  fascicle recruitment (or block) fractions, with the 10%-of-fibres criterion (Zelechowski 2020).
+  A function mixed with others inside a fascicle cannot be targeted alone.
+- **Monopolar MRG threshold table first** (contact × fascicle, µA and nC): it replaces heatmap B
+  (`design.md` §3) and calibrates the AF threshold on our own fibre model, instead of an external
+  source (Peterson 2011, not in `Papers/`).
+- **Block: one-directional distal stimulation (collision) is the next scheme to test**, as task A with
+  extra constraints (same fascicle as the proximal site, distal anode stopping the downward branch),
+  after a re-run of the D-12 first round on the Gmsh solution.
+Alternatives: optimise directly with MRG (exact, but every evaluation is a NEURON run: too slow for a
+search over 48 currents); rank contacts with heatmap B only (no thresholds, no multi-contact
+patterns); kilohertz block (needs the frequency-dependent tissue model, `design.md` §5.5: kept as a
+discussed alternative).
+Why / source: linearity of the volume conductor (D-07); AF as excitation proxy and its limits
+(course slides 02; the threshold also depends on field shape and pulse width, hence the MRG check);
+first block round (`block.md` §6): collision with the same pattern and single-contact block fail.
+Still open (to add here when decided): fibre diameters (one 10 µm or a distribution, source needed);
+selectivity-index definition (source needed); optimiser limits (maximum active contacts, local
+return or ground, contact material for the charge limit); block goal (only the fibres fired
+proximally, or the whole nerve — tutor).
+Consequence / limitation: AF-optimal is not MRG-optimal (a few verification loops); results depend on
+the fibre population chosen inside each fascicle (positions, diameters); one insertion per station is
+one random sample (robustness over insertions and patients = step A4).

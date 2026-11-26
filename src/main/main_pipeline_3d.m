@@ -72,15 +72,9 @@ I0 = p.stim.unitCurrent_A;
 
 
 %% ===== 5. RESULTS ====================================================================
+% The solution is saved BEFORE the figures, so that a slow or interrupted plot never leaves the
+% downstream scripts (export_viewer_data, export_block_profiles) with an old <id>_3d.mat.
 tag = patient.id + "_3d";
-plotSectionLayout(patient, geom, sites, p, fullfile(outDir, tag + "_section.png"));
-tr = triangulation(tl.tets', tl.nodes_m');
-for sec = unique(sites.section(ismember(sites.id, solveIds)))'
-    cols = find(ismember(solveIds, sites.id(sites.section == sec)));
-    plotContactResults(tr, V(:, cols), sites(ismember(sites.id, solveIds(cols)), :), patient, geom, p, ...
-                       res(cols, :), fullfile(outDir, sprintf('%s_section%+d.png', tag, sec)));
-end
-
 out = struct('params', M.p, 'patient', patient, 'sites', sites, 'cuffFit', cuffFit, ...
     'cuffAudit', M.cuffAudit, 'meshFile', string(M.meshFile), 'solvedIds', solveIds, 'results', res, ...
     'mesh', struct('nodes_m', tl.nodes_m, 'tets', uint32(tl.tets), 'elemCell', uint32(elemCell), ...
@@ -89,8 +83,23 @@ out = struct('params', M.p, 'patient', patient, 'sites', sites, 'cuffFit', cuffF
                     'zone', geom.cellZone), ...
     'V_per_A', V, 'current_A', I0, 'created', string(datetime("now")));
 save(fullfile(outDir, tag + ".mat"), 'out', '-v7.3');
-fprintf('\nDone: %s.mat and figures in %s\n', tag, outDir);
+fprintf('\nSaved %s.mat in %s\n', tag, outDir);
 disp(res);
+
+% Figures. The points where V is sampled (fascicle axes, cross-section planes) are located in the
+% mesh once and reused for every contact: locating them again for each of the 48 contacts with
+% pointLocation on the ~4.5 M-element mesh took hours (2026-11-26).
+plotSectionLayout(patient, geom, sites, p, fullfile(outDir, tag + "_section.png"));
+zAxis_m = linspace(-p.domain.nerveLength_m/2, p.domain.nerveLength_m/2, 2801)';
+axisLoc = locateOnLines(tl, patient.fascicles.x_m, patient.fascicles.y_m, zAxis_m);
+for sec = unique(sites.section(ismember(sites.id, solveIds)))'
+    cols = find(ismember(solveIds, sites.id(sites.section == sec)));
+    plotContactResults(tl, V(:, cols), sites(ismember(sites.id, solveIds(cols)), :), patient, geom, p, ...
+                       res(cols, :), fullfile(outDir, sprintf('%s_section%+d.png', tag, sec)), axisLoc, zAxis_m);
+    close(gcf);
+    fprintf('  figure of station %+d written\n', sec);
+end
+fprintf('\nDone: figures in %s\n', outDir);
 
 
 %% ===== LOCAL FUNCTIONS ===============================================================
@@ -157,24 +166,30 @@ title({sprintf('z layout: nerve %.0f mm (beige), cuff %.0f mm (dark, insulating)
 exportgraphics(gcf, fileName);
 end
 
-function plotContactResults(tr, V, S, patient, geom, p, res, fileName)
+function plotContactResults(mesh, V, S, patient, geom, p, res, fileName, axisLoc, z)
 %PLOTCONTACTRESULTS For each contact of one station: V on the cross-section through the contact,
 % V along z on the axis of every fascicle, and its second difference over one internode (activating-
-% function preview), all for 1 uA.
+% function preview), all for 1 uA. mesh = tl (nodes_m 3 x nNodes, tets 4 x nElem); axisLoc =
+% locateOnLines on the fascicle axes at the positions z [m] (column).
 nC = height(S);   R = max(patient.nerveSemiAxes_m);   f = patient.fascicles;   nF = height(f);
-uA = 1e-6;   L = p.domain.nerveLength_m;   dz = p.plot3d.afSpacing_m;
+uA = 1e-6;   dz = p.plot3d.afSpacing_m;
 figure(Color="w", Position=[20 20 min(1900, 300*nC + 120) 1000], Name="Contacts");
 tl = tiledlayout(3, nC, TileSpacing="loose", Padding="loose");
 title(tl, sprintf('Patient %s, station %+d (z = %.1f mm): monopolar, 1 uA', patient.id, S.section(1), ...
       S.z_m(1)*1e3), FontWeight="bold");
-n = 181;   [xg, yg] = meshgrid(linspace(-1.15, 1.15, n) * R);
-z = linspace(-L/2, L/2, 2801)';
+n = 181;   xs = linspace(-1.15, 1.15, n) * R;
 cmap = lines(nF);
+planeZ = [];   planeLoc = {};                    % cross-section planes located so far
 for j = 1:nC
-    % map at the contact plane
-    Vg = interpolateP1(tr, double(V(:, j)) * uA, [xg(:), yg(:), S.z_m(j) * ones(n^2, 1)]);
+    % map at the contact plane (located once per distinct z of the station)
+    iz = find(planeZ == S.z_m(j), 1);
+    if isempty(iz)
+        planeZ(end+1) = S.z_m(j);   planeLoc{end+1} = locateOnPlane(mesh, xs, xs, S.z_m(j));   %#ok<AGROW>
+        iz = numel(planeZ);
+    end
+    Vg = evalP1(mesh.tets, double(V(:, j)) * uA, planeLoc{iz});
     nexttile(tl, j);
-    imagesc(1e3*xg(1,:), 1e3*yg(:,1), reshape(1e3*Vg, n, n)); set(gca, YDir="normal"); hold on
+    imagesc(1e3*xs, 1e3*xs, reshape(1e3*Vg, n, n)'); set(gca, YDir="normal"); hold on   % rows = y
     colormap(gca, turbo); cb = colorbar; cb.Label.String = 'V [mV]';
     drawSection(patient, geom, S.id(j), S);
     xlim(1.15e3*R*[-1 1]); ylim(1.15e3*R*[-1 1]);
@@ -183,7 +198,7 @@ for j = 1:nC
     % V(z) along the fascicle axes
     Vz = zeros(numel(z), nF);
     for i = 1:nF
-        Vz(:, i) = interpolateP1(tr, double(V(:, j)) * uA, [f.x_m(i)*ones(numel(z),1), f.y_m(i)*ones(numel(z),1), z]);
+        Vz(:, i) = evalP1(mesh.tets, double(V(:, j)) * uA, axisLoc(i));
     end
     nexttile(tl, nC + j);
     set(gca, ColorOrder=cmap); hold on
@@ -204,4 +219,42 @@ for j = 1:nC
     title(sprintf('cathodic \\Delta^2V, \\Deltaz = %.1f mm', dz*1e3), FontSize=9); grid on
 end
 exportgraphics(gcf, fileName);
+end
+
+function loc = locateOnPlane(mesh, xs_m, ys_m, z_m)
+%LOCATEONPLANE Element and barycentric coordinates of the grid points (xs_m x ys_m) on the plane z = z_m,
+% x fastest. locateRegularGrid on a two-plane grid (only the first plane wanted), restricted to the
+% elements that cross the plane: seconds instead of minutes with pointLocation.
+h = 1e-9;                                        % spacing of the dummy second plane [m]
+ez = reshape(mesh.nodes_m(3, mesh.tets), 4, []);
+el = find(min(ez, [], 1) <= z_m & max(ez, [], 1) >= z_m);
+mask = false(numel(xs_m), numel(ys_m), 2);   mask(:, :, 1) = true;
+[t, b] = locateRegularGrid(mesh.nodes_m, double(mesh.tets(:, el)), {xs_m(:)', ys_m(:)', [z_m, z_m + h]}, mask);
+ok = ~isnan(t);   t(ok) = el(t(ok));
+loc = struct('tet', t, 'bary', b);
+end
+
+function loc = locateOnLines(mesh, x_m, y_m, z_m)
+%LOCATEONLINES Element and barycentric coordinates of the points (x_m(i), y_m(i), z_m) on lines parallel
+% to the nerve axis (one struct element per line), with the same locateRegularGrid trick as
+% locateOnPlane (one x, one y), restricted to the elements whose bounding box contains the line.
+h = 1e-9;
+ex = reshape(mesh.nodes_m(1, mesh.tets), 4, []);   ey = reshape(mesh.nodes_m(2, mesh.tets), 4, []);
+xmin = min(ex, [], 1);   xmax = max(ex, [], 1);   ymin = min(ey, [], 1);   ymax = max(ey, [], 1);
+clear ex ey
+loc = repmat(struct('tet', [], 'bary', []), numel(x_m), 1);
+mask = false(2, 2, numel(z_m));   mask(1, 1, :) = true;
+for i = 1:numel(x_m)
+    el = find(xmin <= x_m(i) & xmax >= x_m(i) & ymin <= y_m(i) & ymax >= y_m(i));
+    [t, b] = locateRegularGrid(mesh.nodes_m, double(mesh.tets(:, el)), ...
+                               {[x_m(i), x_m(i) + h], [y_m(i), y_m(i) + h], z_m(:)'}, mask);
+    ok = ~isnan(t);   t(ok) = el(t(ok));
+    loc(i) = struct('tet', t, 'bary', b);
+end
+end
+
+function v = evalP1(tets, u, loc)
+%EVALP1 P1 interpolation of the nodal field u at points already located (loc.tet, loc.bary); NaN outside.
+v = nan(numel(loc.tet), 1);   ok = ~isnan(loc.tet);
+v(ok) = sum(loc.bary(ok, :) .* u(tets(:, loc.tet(ok))'), 2);
 end

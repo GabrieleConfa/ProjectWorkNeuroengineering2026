@@ -103,6 +103,8 @@ you leave a box (or press *Apply*); **Shift+click** a contact in the 3D view cyc
 *Invert* swaps cathodes and anodes, *Clear* switches everything off. The model is linear, so a pattern is the sum
 of the single-contact potentials weighted by their currents (exported per contact as a 16-bit potential):
 
+- **V** is coloured by its magnitude **|V|** (cathodes give V < 0: a signed min→max scale would put the
+  contact at the bottom and light up the whole nerve); the signed range is printed under the table;
 - **V** and **AF+ / AF−** are computed from that sum: AF = ∂²V/∂z² over one internode with the actual polarities,
   inside the fascicles; AF+ shows where fibres are depolarised (pushed to fire), AF− where they are
   hyperpolarised (e.g. under an anode, the block region, and the virtual anodes beside a cathode);

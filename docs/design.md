@@ -1,8 +1,9 @@
 # Design of the 3D simulation and the viewer — status and next steps
 
-Status: **2026-11-22** (oval nerve and rigid tangent cuff pads, D-10/D-11; station −4 re-solved);
-open questions updated 2026-11-23 (convergence method, hardware, multi-contact configurations);
-roadmap from the 2026-11-23 tutor meeting in §5. One page to know what exists, how the pieces fit, and what to do next.
+Status: **2026-11-26** — Gmsh model (D-14), **all 48 contacts solved** for UA01, viewer data exported
+for all of them; plan for configuration selection and block agreed (§5.6, D-15). Earlier: 2026-11-22
+(oval nerve and rigid tangent cuff pads, D-10/D-11); open questions updated 2026-11-23; roadmap from
+the 2026-11-23 tutor meeting in §5. One page to know what exists, how the pieces fit, and what to do next.
 The details are elsewhere: model and code walkthrough in [`model_3d.md`](model_3d.md), choices in
 [`decisions.md`](decisions.md) (D-NN), numbers and sources in [`parameters.md`](parameters.md), how to
 run things in the [README](../README.md).
@@ -47,7 +48,7 @@ Why each step is separate:
 | Virtual patient (10 fascicles, mid-upper arm, literature-based, seeded) | done, tested | `src/geometry/`, D-09 |
 | 3D geometry (70 mm oval nerve, 50 mm insulating cuff shaped on it, 48 contacts; rigid cuff pads tangent to the oval) | done | `src/mesh/buildNerveGeometry3D.m`, `src/electrode/placeCuffContacts.m`, D-02…D-05, D-10, D-11 |
 | FE assembly with perineurium thin layer | done, exact-solution tests | `src/fem/`, `tests/testThinLayerFEM.m`, D-06 |
-| Solve, checks (current conservation, equipotential contacts, access resistance) | done for **station −4 only (6 of 48 contacts)** | `main_pipeline_3d.m`, `model_3d.md` §10 |
+| Solve, checks (current conservation, equipotential contacts, access resistance) | done for **all 48 contacts** (Gmsh mesh, 2026-11-26; ≈ 30 s per contact with pcg) | `main_pipeline_3d.m`, `solve3DContacts.m`, `model_3d.md` §10 |
 | Browser viewer: rotate, stimulate (Space/click), V, \|E\|, \|J\|, AF, transverse and longitudinal cuts | done, data versioned | `viewer/`, `model_3d.md` §8.2 |
 | Activating function on the grid + "AF reached by 10% of the fibres" per fascicle | prototype in the export (printout only) | `export_viewer_data.m` |
 | Phase 5 proper (fibres, diameters, AF threshold, thresholds in µA/nC) | **not started** (skeletons) | `src/activation/` |
@@ -60,6 +61,14 @@ the cuff pads drive the superficial fascicle under them (2–3.5×). Table in `m
 circle results of 2026-11-20 are kept there for comparison).
 
 ## 3. Next session: the full simulation (all 48 contacts) and heatmap B
+
+**Status 2026-11-26: steps 1–3 done.** Every contact is saved as soon as it is solved and reloaded on
+the next run (`solve3DContacts.m`); all 48 contacts were solved on the Gmsh mesh with pcg (≈ 30 s each);
+the viewer data were re-exported (≈ 2 MB per contact, gzip, ≈ 91 MB in total, committed). Lesson from
+that run: the figures of `main_pipeline_3d` §5 took hours because every contact located its sampling
+points in the 4.5 M-element mesh again with `pointLocation`; they are now located once with
+`locateRegularGrid` (≈ 1 min for the 8 figures), and `<id>_3d.mat` is saved before the figures
+(`model_3d.md` §5 walkthrough). Step 4 (heatmap B) is superseded by the MRG threshold table of §5.6 (step A1).
 
 Goal: the **contact × fascicle heatmap of activation strength** ("heatmap B"): for each of the 48
 contacts and each fascicle, the activating function reached by 10% of the fascicle's fibres,
@@ -234,7 +243,8 @@ remeshing noise floor and the effect of 5 µm edge refinement (`p.mesh3d.hEdge_m
 **Status 2026-11-25: first round implemented** on the current model (no new solve): the two sites
 are the two mirror halves of the layout, distal contacts by z-mirror, MRG fibres in NEURON.
 Walkthrough and results: `docs/block.md`; choices: D-12. The "all-round probes" below turned out to
-be the existing contacts (group, 2026-11-25).
+be the existing contacts (group, 2026-11-25). **Next steps (2026-11-26): task B of the plan in §5.6**
+(re-run on the Gmsh solution, then one-directional distal stimulation with the configuration optimiser).
 
 Clinical scenario (amputee, after targeted muscle reinnervation — the surgeon reconnects the nerve
 to other muscles):
@@ -351,6 +361,79 @@ Notes:
 - **What each parameter controls.** Amplitude and pulse width set how many fibres are recruited;
   the pulse rate sets the firing rate, i.e. the perceived intensity (rate coding). The FEM solution
   per pulse does not depend on the rate; the rate matters through fibre dynamics.
+
+#### Plan agreed on 2026-11-26 (configuration selection + block; choice record D-15)
+
+**One idea for both tasks.** The model is linear, so for any configuration V = Σ Iₖ·Vₖ over the 48
+unit solutions, and along every fibre the activating function (AF) is the same weighted sum of 48
+per-contact profiles. Searching over configurations is therefore cheap with the AF; every candidate is
+then **verified with the MRG fibres in NEURON** (`src/block/mrg_fibre.py`), because the AF is only a
+proxy (the true threshold also depends on the field shape and the pulse width).
+
+**The device works at fascicle level (group, 2026-11-26).** It cannot stimulate or record single
+fibres: it sets contact currents and can only observe whole fascicles (compound activity). Consequences:
+- the fibres in the model are a **means**, not an output: each fascicle is a population of model
+  fibres, and every result is reported per fascicle (fraction of its fibres recruited / blocked,
+  10%-of-fibres criterion as in Zelechowski 2020);
+- the optimiser's targets and constraints are **fascicle recruitment fractions** (e.g. target ≥ 50%,
+  every other fascicle ≤ 10%), not individual fibres;
+- physically the stimulus still acts fibre by fibre (the fibres closest to the contact fire first), so
+  a partial recruitment inside a fascicle can happen, but the device cannot measure or exploit it:
+  a function whose fibres are mixed with others inside a fascicle (Delgado-Martinez 2016,
+  `src/patient/functionCatalog.m`) cannot be separated from them; the best possible is to choose the
+  fascicles where that function's share is largest;
+- recording (§7) is a fascicle-level signal too: by reciprocity the 48 unit solutions are the lead
+  fields of the compound activity of each fascicle.
+
+**Task A — configuration that fires a chosen fascicle**
+- **A1. Monopolar screening with MRG.** For every contact and every fibre, the threshold current by
+  bisection → recruitment curve of every fascicle → contact × fascicle table of thresholds (µA, nC),
+  selectivity index and selectivity window (how far the current can rise before the next fascicle
+  reaches 10%; AS 2 → F7 gave ×12 in the first block round). Cost ≈ 48 × 453 fibres × ~10 runs × 0.3 s
+  / 7 processes ≈ 2–3 h per fibre diameter (overnight). It also **calibrates our AF threshold** (AF at
+  the MRG threshold), which removes the need for an external AF-threshold source (Peterson 2011). It
+  supersedes heatmap B (§3).
+- **A2. Multi-contact current steering as a linear program** (`scipy.optimize.linprog`, Python, next to
+  NEURON). Variables: signed currents Iₖ. Linear in Iₖ: AF ≥ θ on the target fascicle's fibres
+  (maximise the margin or the recruited fraction), AF ≤ θ/(safety factor) on the other fascicles' fibres
+  at every node, |Iₖ|·PW ≤ the charge limit per contact (CIC of the contact material, Shannon), at most
+  N active contacts, optionally Σ Iₖ = 0 (local return). Then MRG verification, adjust θ, 2–3 loops.
+- **A3. Target a function** (group of muscles or skin area) instead of a fascicle: target set = the
+  fascicles with the largest share of that group (`src/patient/`), within the fascicle-level limit above.
+- **A4. Robustness**: A1–A2 over several lead insertions and virtual patients (phase 6): how often each
+  target can be reached selectively, not only the best case on UA01.
+- **A5. Viewer**: a "target" drop-down that loads the optimised pattern into Pattern mode, through the
+  configuration JSON shared with NEURON (§8).
+
+**Task B — block towards the amputated limb** (first round and its results: `block.md` §6, §5.3 here)
+- **B0.** Re-run the first round on the Gmsh solution (all 48 contacts solved, no mirror), ≈ 10 min.
+- **B1. One-directional distal stimulation (collision block, the most promising).** A distal cathode
+  with anodes on its distal side (e.g. cathode on station +3, anodes on +4): the distal AP travels only
+  towards the brain and annihilates with the descending AP, so nothing reaches the muscle and the brain
+  receives only the proximal AP. It is task A with extra constraints: the distal cathode must fire the
+  same fascicle the proximal site fired and nothing else (otherwise extra sensations), the distal anode
+  must hyperpolarise it enough to stop the downward branch without virtual-cathode firing (anode spread
+  over several contacts or the cuff pads = lower charge density). Timing window = travel time between
+  the sites (≈ 0.4 ms over 20 mm at 52 m/s for 10 µm fibres; wider for smaller, slower fibres).
+- **B2. Pulse shaping**: slowly rising anodal phase (the virtual cathodes accommodate instead of
+  firing), slowly decaying end (quasi-trapezoidal, no anode break). Needs piecewise-linear waveforms
+  in `mrg_fibre.Channel` (today rectangular only).
+- **B3. Fibre-diameter sweep**: excitation and block scale differently with D.
+- **B4. Kilohertz block**: later, only as a discussed alternative (needs §5.5; onset response).
+- **Safety on every candidate**: charge per phase and charge density vs the contact material and the
+  Shannon criterion — in the first round this ruled out most single-contact block settings.
+
+**Order**: (1) B0 → (2) export fibre profiles for all 48 contacts (`export_block_profiles`) → (3) A1
+(overnight) → (4) A2 + MRG loop (Python module + notebook) → (5) B1 reusing the A2 optimiser → (6) B2/B3
+→ (7) A3/A4 (phase 6) → (8) viewer drop-down + shared JSON.
+
+**Still open before A1** (user / tutor; to log in D-15 when decided):
+1. fibre diameters: one 10 µm (as so far) or a distribution per fascicle (needs a median-nerve source);
+2. selectivity metric: 10%-of-fibres criterion (Zelechowski 2020) and which selectivity-index
+   definition (source to find before citing);
+3. optimiser limits: maximum number of active contacts, return to ground or balanced local return,
+   contact material for the charge limit;
+4. block goal (tutor): block only the fibres the proximal site fired, or the whole nerve.
 
 ### 7. Recording and stimulation are time-multiplexed
 The device cannot record and stimulate at the same time (the stimulus artefact saturates the

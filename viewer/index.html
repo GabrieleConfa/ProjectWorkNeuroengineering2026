@@ -1202,8 +1202,21 @@ async function computePattern() {
     validA[k] = 1;
     if (f > 0) Fp[k] = f; else Fn[k] = -f;
   }
-  const cV = codeLinearJS(V, inside), cE = codeLogJS(E, inside), cA = codeLogJS(Fp, validA), cN = codeLogJS(Fn, validA);
+  // V is coloured by its MAGNITUDE |V|: with cathodic (negative) currents V < 0, and a min->max scale
+  // of signed V would put the contact at the bottom of the scale and light up the whole far field
+  // (hidden below Window lo). With |V| a cathode looks like an anode in single mode; in mixed
+  // patterns both polarities are hot spots. The signed range is printed in the pattern info line.
+  let vMin = Infinity, vMax = -Infinity;
+  const absV = new Float32Array(N);
+  for (let k = 0; k < N; k++) {
+    if (!inside[k]) continue;
+    absV[k] = Math.abs(V[k]);
+    if (V[k] < vMin) vMin = V[k];
+    if (V[k] > vMax) vMax = V[k];
+  }
+  const cV = codeLinearJS(absV, inside), cE = codeLogJS(E, inside), cA = codeLogJS(Fp, validA), cN = codeLogJS(Fn, validA);
   cV.info.unit = 'mV'; cE.info.unit = 'V/m'; cA.info.unit = 'V/m^2'; cN.info.unit = 'V/m^2';
+  cV.info.magnitude = true;
   cA.info.spacing_mm = cN.info.spacing_mm = +(dzm.toFixed(3));
   NV.fields.pattern = {
     id: 'pattern', entries, label: patternLabel(entries),
@@ -1214,7 +1227,7 @@ async function computePattern() {
   const net = entries.reduce((s, [, I]) => s + I, 0);
   $('patInfo').innerHTML = `${entries.length} contacts (${nC} cathodic, ${nA} anodic) · net current ${net > 0 ? '+' : ''}${+net.toFixed(3)} µA` +
     (Math.abs(net) > 1e-9 ? ' to the grounded boundary' : ' (balanced)') +
-    `<br>V ${formatValue(cV.info.lo)} … ${formatValue(cV.info.hi)} mV`;
+    `<br>V ${formatValue(vMin)} … ${formatValue(vMax)} mV (coloured: |V|)`;
   if (!state.heatOn) state.heatOn = true;
   updateAll();
 }
@@ -1555,8 +1568,10 @@ function updateColorbar() {
   if (q === 'A' && !isPattern) extra = `cathodic pulse · depolarisation only · Δz = ${info.spacing_mm} mm · endoneurium only`;
   if ((q === 'A' || q === 'N') && isPattern) extra = `actual polarities · ${q === 'A' ? 'depolarisation' : 'hyperpolarisation'} only · Δz = ${info.spacing_mm} mm · endoneurium only`;
   if (q === 'E' && isPattern) extra = 'finite differences on the grid (approximate at the perineurium)';
+  if (q === 'V' && info.magnitude) extra = 'magnitude: V &lt; 0 around the cathodes, &gt; 0 around the anodes';
   if (extra) extra = `<br><span style="color:var(--muted)">${extra}</span>`;
-  $('cbName').innerHTML = `<b>${Q_INFO[q].name}</b> [${unit}]${info.scale === 'log' ? ' · log scale' : ''}${extra}`;
+  const qName = q === 'V' && info.magnitude ? 'Potential |V|' : Q_INFO[q].name;
+  $('cbName').innerHTML = `<b>${qName}</b> [${unit}]${info.scale === 'log' ? ' · log scale' : ''}${extra}`;
   $('cbInfo').textContent = (isPattern ? `pattern: ${f.label}` : `AS ${f.id} · ${I} µA`) + (state.heatOn ? '' : ' · off');
   const cv = $('cbCanvas'), ctx = cv.getContext('2d');
   const img = ctx.createImageData(cv.width, cv.height);
