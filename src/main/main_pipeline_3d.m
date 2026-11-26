@@ -15,24 +15,27 @@
 %   results/main3d/<id>_*.mat         mesh, cell roles and potentials (struct "out")
 %   results/main3d/<id>_*.png         cross-section, z layout, potential maps and profiles
 %
-% Model in short (choices and reasons: docs/decisions.md D-02 ... D-09)
-%   - geometry: elliptical nerve of the literature area and roundness (D-10; the rigid cuff is
-%     tight on it), fascicles generated from the literature (makePatient), the same section along
-%     the 70 mm (layered extrusion);
-%   - cuff: 50 mm, centred on the contacts, wall = void (perfect insulator); rigid flat cuff pads,
-%     tangent to the oval and pressed into it until the whole face touches the nerve (D-11,
-%     placeCuffContacts); shank contacts at the tutor's positions (no shank body yet);
+% Model in short (choices and reasons: docs/decisions.md D-02 ... D-14)
+%   - mesher (p.mesh3d.mesher, D-14): "gmsh" (default) = Marco's model: elliptical nerve (D-10),
+%     irregular fascicles from the chosen patient (p.patient: our generator, a virtual patient or a
+%     JSON file), one random lead insertion per station (the PDMS lead bends around or pierces the
+%     fascicles, pierce probability by fascicle size and angle, src/insertion/), pads placed along
+%     the lead, displaced fascicles, oval insulating PDMS sleeve, flat cuff pads on the oval, 5 um
+%     elements on the pad edges. The mesh is saved in results/mesh/ and reused (p.mesh3d.cacheMode).
+%     "pdetoolbox" = the previous model: straight shanks, circular fascicles, void cuff wall
+%     (D-03, D-05, D-11);
 %   - tissues: endoneurium (anisotropic, sigma_z = longitudinal), epineurium, muscle (anisotropic);
 %     PERINEURIUM = thin layer on the fascicle boundary (potential jump, sheet resistance rho*t);
 %   - active contact: high-conductivity cell with a uniform source I/volume (equipotential, carries
 %     exactly I); idle contacts insulating (as in 2D);
 %   - outer muscle surface (and the end planes, by default) grounded.
 %   The FE system is assembled by the project's own P1 code (src/fem/), checked by
-%   tests/testThinLayerFEM.m; the PDE Toolbox builds the geometry and the mesh.
+%   tests/testThinLayerFEM.m, and solved by pcg (D-14) for each contact.
 %
 % Units: SI inside the code (m, S/m, A, V); mm, um, uA, mV only in prints and plots.
 % Run: press Run in the editor, or type main_pipeline_3d (the script adds the project paths itself).
-% Time: geometry ~ minutes (many cell merges), mesh ~ minutes, each contact ~ 1 solve.
+% Time: anatomy + insertions ~ 1 min; Gmsh mesh ~ minutes (only the first time: then reused);
+%   each contact ~ 1 pcg solve. Needs Python with gmsh (pip install gmsh) for the Gmsh mesher.
 
 clear; close all; clc;
 mm = 1e-3;   um = 1e-6;
@@ -42,114 +45,30 @@ outDir = fullfile(root, 'results', 'main3d');
 if ~exist(outDir, 'dir'), mkdir(outDir); end
 
 
-%% ===== 1. PARAMETERS, PATIENT, CONTACTS ==============================================
+%% ===== 1-4a. PATIENT, CONTACTS, GEOMETRY, MESH, FE SYSTEM ===============================
+% src/main/build3DModel.m: patient and lead insertions (gmshAnatomy), contacts (personalDevice3D),
+% mesh (Gmsh, or loaded from results/mesh/), perineurium thin layer, assembly of the stiffness
+% matrix. As a function it is also called by the mesh-convergence study (scripts/run_convergence_3d.m)
+% and can be called in a loop over patients / toy experiments.
 p = pw6_3d_params();
-patient = makePatient(p.patient.id, p.patient.seed, p);
-R = patient.nerveRadius_m;   fasc = patient.fascicles;   nF = height(fasc);
-genParams = struct('geometry', p.geometry, 'perineurium', p.perineurium, ...
-                   'sitesFile', p.electrode.sitesFile, 'created', string(datetime("now")));
-save(fullfile(root, 'data', 'patients', patient.id + ".mat"), 'patient', 'genParams');
-fprintf(['Patient %s (seed %d, %s): %s %.3f x %.3f mm (semi-axes, major axis at %g deg; equivalent ' ...
-         'R = %.3f mm), %d fascicles, %d inner (target %d), %d restarts\n'], ...
-        patient.id, patient.seed, patient.level, patient.nerveShape, patient.nerveSemiAxes_m/mm, ...
-        patient.nerveRotation_deg, R/mm, nF, patient.generatorInfo.nInner, ...
-        patient.generatorInfo.targetInner, patient.generatorInfo.restarts);
-disp(table((1:nF)', round(fasc.x_m/mm, 3), round(fasc.y_m/mm, 3), round(fasc.rEndo_m/mm, 3), ...
-     round(pi*fasc.rEndo_m.^2/mm^2, 3), 'VariableNames', {'F', 'x_mm', 'y_mm', 'rEndo_mm', 'area_mm2'}));
-
-sites = loadActiveSites(p.electrode.sitesFile, R);
-sites.thickness_m(:) = p.electrode.thicknessOverride_m;   % 50 um (slides), not the 5 um of sites.mat
-% rigid flat cuff pads: tangent to the oval, both side edges cuffEdgeIndent_m inside the nerve (D-11)
-[sites, cuffFit] = placeCuffContacts(sites, patient, p.electrode.cuffEdgeIndent_m);
-fprintf(['Cuff pads: face-centre indentation %.1f ... %.1f um, edges %.1f um, face normal tilted up to ' ...
-         '%.1f deg from radial\n'], min(cuffFit.centreIndent_m)/um, max(cuffFit.centreIndent_m)/um, ...
-        p.electrode.cuffEdgeIndent_m/um, max(cuffFit.tiltFromRadial_deg));
-where = contactLocation(sites, fasc);
+M = build3DModel(p);
+patient = M.patient;   sites = M.sites;   geom = M.geom;   tl = M.tl;   cuffFit = M.cuffFit;
+elemCell = M.elemCell;   nN = M.nN;
 
 
-%% ===== 2. GEOMETRY ===================================================================
-geom = buildNerveGeometry3D(patient, sites, p);
-g = geom.g;
-fprintf('\nGeometry: %d cells (endo %d, epi %d, muscle %d, contacts %d), %d faces, %d merges, %.0f s\n', ...
-        g.NumCells, nnz(geom.cellTissue == 1), nnz(geom.cellTissue == 3), nnz(geom.cellTissue == 4), ...
-        nnz(geom.cellTissue == 5), g.NumFaces, geom.nMerges, geom.time_s);
-
-
-%% ===== 3. MESH =======================================================================
-h = geom.faceSize_m;   hs = unique(h(isfinite(h)))';
-Hf = {};
-for s = hs, Hf(end+1:end+2) = {find(h == s)', s}; end %#ok<AGROW>
-tic;
-gm = generateMesh(g, GeometricOrder="linear", Hmax=p.mesh3d.hMax_m, Hmin=p.mesh3d.hMin_m, ...
-                  Hgrad=p.mesh3d.hGrad, Hface=Hf);
-msh = gm.Mesh;   X = msh.Nodes;   T = double(msh.Elements);
-nN = size(X, 2);   nE = size(T, 2);
-elemCell = zeros(1, nE);
-for c = 1:g.NumCells, elemCell(findElements(msh, "region", "Cell", c)) = c; end
-assert(all(elemCell > 0), 'Some elements belong to no cell.');
-elemTissue = geom.cellTissue(elemCell)';   elemSite = geom.cellSite(elemCell)';
-fprintf('Mesh: %d nodes, %d linear tetrahedra (%.0f s); per tissue: endo %d, epi %d, muscle %d, contacts %d\n', ...
-        nN, nE, toc, nnz(elemTissue == 1), nnz(elemTissue == 3), nnz(elemTissue == 4), nnz(elemTissue == 5));
-
-
-%% ===== 4. FE SYSTEM AND SOLUTION =====================================================
-sigT = p.materials.sigmaT_Spm;   sigL = p.materials.sigmaL_Spm;   % endo, peri, epi, muscle
-Gs = sigT(2) / p.perineurium.realThickness_m;                      % perineurium sheet conductance
-fprintf('\nPerineurium thin layer: sheet resistance %.0f Ohm*cm^2 (Gs = %.1f S/m^2)\n', 1e4/Gs, Gs);
-
-% thin layer: duplicate the nodes of the fascicle boundaries (not those shared with a contact)
-contactNodes = unique(T(:, elemTissue == 5));
-ifaceNodes = setdiff(findNodes(msh, "region", "Face", geom.interfaceFaces), contactNodes);
-tl = thinLayerInterface(X, T, elemTissue == 1, ifaceNodes(:), Gs);
-nAll = tl.nNodes;
-fprintf('   %d interface nodes duplicated, interface area %.1f mm^2 (fascicle perimeters x length: %.1f mm^2)\n', ...
-        numel(ifaceNodes), sum(tl.area_m2)/mm^2, sum(2*pi*fasc.rEndo_m) * p.domain.nerveLength_m / mm^2);
-
-% conductivity of every element [sigma_x; sigma_y; sigma_z]
-switch p.electrode.idleContacts
-    case "insulating", sIdle = p.electrode.insulatorSigma_Spm;
-    case "floating",   sIdle = p.electrode.contactSigma_Spm;
-    otherwise, error('Unknown idleContacts "%s".', p.electrode.idleContacts);
-end
-tissueSigma = [sigT(1) sigT(1) sigL(1); 0 0 0; sigT(3) sigT(3) sigL(3); sigT(4) sigT(4) sigL(4); sIdle sIdle sIdle]';
-sig = tissueSigma(:, elemTissue);
-[K0, vol] = assembleConductionP1(tl.nodes_m, tl.tets, sig, p.solve3d.assemblyBlockSize);
-K0 = K0 + tl.K;
-
-gnd = findNodes(msh, "region", "Face", geom.groundFaces);
-gnd = unique([gnd(:); nonzeros(tl.copyOf(gnd))]);
-free = true(nAll, 1);   free(gnd) = false;
-
+%% ===== 4b. SOLUTION, one contact at a time =============================================
+% src/main/solve3DContacts.m: unit current on each contact. Every contact is saved as soon as it is
+% solved in results/main3d/<id>_contacts/<mesh file name>/ and reloaded by the next run if the mesh
+% and the parameters are the same (resume after a stop); one folder per mesh, so switching between
+% meshes (patients, toy experiments) keeps the solved contacts of each. The contacts of a previous
+% complete run (results/main3d/<id>_3d.mat) seed that cache if they were solved on the same mesh.
 if isempty(p.solve3d.sections), solveIds = sites.id;
 else, solveIds = sites.id(ismember(sites.section, p.solve3d.sections));
 end
-nS = numel(solveIds);   I0 = p.stim.unitCurrent_A;
-if p.solve3d.saveSingle, V = zeros(nAll, nS, 'single'); else, V = zeros(nAll, nS); end
-res = table(solveIds, strings(nS,1), zeros(nS,1), zeros(nS,1), zeros(nS,1), zeros(nS,1), ...
-            'VariableNames', {'id', 'location', 'Vcontact_V', 'R_kOhm', 'spread_pct', 'conservErr_pct'});
-fprintf('\nSolving %d contacts (unit current %g A, idle contacts %s):\n', nS, I0, p.electrode.idleContacts);
-for j = 1:nS
-    s = solveIds(j);   row = find(sites.id == s);
-    es = find(elemSite == s);
-    K = K0;
-    if p.electrode.idleContacts == "insulating"           % this contact becomes the conductor
-        K = K + assembleConductionP1(tl.nodes_m, tl.tets(:, es), ...
-                                     (p.electrode.contactSigma_Spm - sIdle) * [1; 1; 1]);
-    end
-    Te = tl.tets(:, es);
-    F = accumarray(Te(:), reshape(repmat(I0 / sum(vol(es)) * vol(es) / 4, 4, 1), [], 1), [nAll 1]);
-    u = zeros(nAll, 1);   tic;
-    u(free) = solveSPD(K(free, free), F(free), p.solve3d);
-    Ignd = -sum(K(gnd, :) * u - F(gnd));                   % current leaving through the ground
-    cn = unique(Te(:));   Vc = mean(u(cn));
-    res.location(j) = where(row);   res.Vcontact_V(j) = Vc;   res.R_kOhm(j) = Vc / I0 / 1e3;
-    res.spread_pct(j) = 100 * (max(u(cn)) - min(u(cn))) / Vc;
-    res.conservErr_pct(j) = 100 * abs(Ignd - I0) / I0;
-    V(:, j) = u;
-    fprintf('   AS %2d (%s, z = %+.1f mm) %-28s R = %7.2f kOhm, contact spread %.3f%%, current check %.1e%%  [%.0f s]\n', ...
-            s, string(sites.type(row)), sites.z_m(row)/mm, where(row), res.R_kOhm(j), ...
-            res.spread_pct(j), res.conservErr_pct(j), toc);
-end
+I0 = p.stim.unitCurrent_A;
+[~, meshTag] = fileparts(M.meshFile);
+[V, res] = solve3DContacts(M, solveIds, struct('cacheDir', fullfile(outDir, patient.id + "_contacts", meshTag), ...
+                                                'prevFile', fullfile(outDir, patient.id + "_3d.mat")));
 
 
 %% ===== 5. RESULTS ====================================================================
@@ -162,8 +81,8 @@ for sec = unique(sites.section(ismember(sites.id, solveIds)))'
                        res(cols, :), fullfile(outDir, sprintf('%s_section%+d.png', tag, sec)));
 end
 
-out = struct('params', p, 'patient', patient, 'sites', sites, 'cuffFit', cuffFit, ...
-    'solvedIds', solveIds, 'results', res, ...
+out = struct('params', M.p, 'patient', patient, 'sites', sites, 'cuffFit', cuffFit, ...
+    'cuffAudit', M.cuffAudit, 'meshFile', string(M.meshFile), 'solvedIds', solveIds, 'results', res, ...
     'mesh', struct('nodes_m', tl.nodes_m, 'tets', uint32(tl.tets), 'elemCell', uint32(elemCell), ...
                    'nOriginalNodes', nN, 'dupOf', uint32(tl.dupOf)), ...
     'cells', struct('tissue', geom.cellTissue, 'fascicle', geom.cellFascicle, 'site', geom.cellSite, ...
@@ -175,49 +94,18 @@ disp(res);
 
 
 %% ===== LOCAL FUNCTIONS ===============================================================
-function x = solveSPD(A, b, opt)
-%SOLVESPD Solve the symmetric positive definite system A x = b (direct or preconditioned CG).
-switch opt.solver
-    case "direct"
-        x = A \ b;
-    case "pcg"
-        Lc = ichol(A, struct('type', 'ict', 'droptol', 1e-4, 'diagcomp', 1e-3));
-        [x, flag, relres] = pcg(A, b, opt.pcgTol, 5000, Lc, Lc');
-        % a non-converged solution must not be saved as a result (Marco's branch, 2026-11-22)
-        assert(flag == 0, 'pcg did not converge (flag %d, relres %.1e).', flag, relres);
-    otherwise
-        error('Unknown solver "%s".', opt.solver);
-end
-end
-
-function where = contactLocation(sites, fasc)
-%CONTACTLOCATION Where each contact lies: fascicle(s) / epineurium crossed by its mid-line.
-where = strings(height(sites), 1);
-for k = 1:height(sites)
-    if sites.type(k) == "cuff", where(k) = "cuff, nerve surface"; continue; end
-    s = linspace(-0.5, 0.5, 201)' * sites.sideXY_m(k);
-    pts = sites.centre_m(k, 1:2) + s * sites.w(k, 1:2);
-    lab = zeros(size(pts, 1), 1);
-    for i = 1:height(fasc)
-        lab(hypot(pts(:,1) - fasc.x_m(i), pts(:,2) - fasc.y_m(i)) < fasc.rEndo_m(i)) = i;
-    end
-    parts = strings(0);
-    for v = unique(lab)'
-        name = "epineurium";   if v > 0, name = "F" + v; end
-        parts(end+1) = sprintf('%s %.0f%%', name, 100 * mean(lab == v)); %#ok<AGROW>
-    end
-    where(k) = strjoin(parts, ", ");
-end
-end
-
 function drawSection(patient, geom, siteIdsToHighlight, sites)
 %DRAWSECTION Nerve, fascicles (with labels) and contact footprints, in mm.
 th = linspace(0, 2*pi, 300);   f = patient.fascicles;
 nb = nerveOutline(patient.nerveSemiAxes_m, patient.nerveRotation_deg, 300);
 plot(1e3*nb([1:end 1], 1), 1e3*nb([1:end 1], 2), 'k-', LineWidth=1);   hold on
 for i = 1:height(f)
-    plot(1e3*(f.x_m(i) + f.rEndo_m(i)*cos(th)), 1e3*(f.y_m(i) + f.rEndo_m(i)*sin(th)), '-', ...
-         Color=[0.25 0.25 0.25], LineWidth=0.8);
+    if isfield(patient, 'outlines')                          % Gmsh model: the real (irregular) outlines
+        P = patient.outlines{i};   plot(1e3*P([1:end 1], 1), 1e3*P([1:end 1], 2), '-', Color=[0.25 0.25 0.25], LineWidth=0.8);
+    else
+        plot(1e3*(f.x_m(i) + f.rEndo_m(i)*cos(th)), 1e3*(f.y_m(i) + f.rEndo_m(i)*sin(th)), '-', ...
+             Color=[0.25 0.25 0.25], LineWidth=0.8);
+    end
     text(1e3*f.x_m(i), 1e3*f.y_m(i), "F" + i, HorizontalAlignment="center", FontWeight="bold", FontSize=8);
 end
 for k = 1:numel(geom.footprints)

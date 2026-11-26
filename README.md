@@ -65,7 +65,8 @@ offline.
 | hover a gold contact | see where it is (fascicle or epineurium) and its access resistance |
 | click a contact, or press **Space** | stimulate it: its field appears as a glowing heatmap (Space again = off) |
 | **← →** | previous / next solved contact |
-| **1 2 3 4** or the buttons | show V, \|E\|, \|J\| or **AF** (activating function, the default) |
+| **1 2 3 4 5** or the buttons | show V, \|E\|, \|J\|, **AF+** (activating function, depolarisation, the default) or **AF−** (hyperpolarisation, patterns only) |
+| *Pattern* button, or **Shift+click** contacts | stimulate **several contacts at once** with their own currents (see *Patterns* below) |
 | **C**, then **↑ ↓**, **F** | cut the nerve (none → transverse → lengthwise), move the cut, flip the side removed |
 | station buttons −4 … +4 | jump to the cross-section through that station |
 | **P**, **M**, **L**, **R**, **?** | pulse animation, colour map, full 70 mm, reset view, list of keys |
@@ -90,8 +91,29 @@ the colour bar, the model being linear):
 Colours are scaled per contact (each contact's own range): to compare contacts, read the numbers
 on the colour bar. A link can open a prepared view, e.g.
 `viewer/index.html?site=2&heat=1&cut=transverse&z=-10.3&flip=1` (options: `site`, `heat=1`,
-`q=V|E|J|A`, `cut=transverse|longitudinal`, `z`, `angle`, `offset`, `flip=1`, `full=1`,
-`cmap=inferno`, `patient`). Details: [docs/model_3d.md](docs/model_3d.md) §8.2.
+`q=V|E|J|A|N`, `cut=transverse|longitudinal`, `z`, `angle`, `offset`, `flip=1`, `full=1`,
+`cmap=inferno`, `patient`, `pattern=id:µA,...`). Details: [docs/model_3d.md](docs/model_3d.md) §8.2.
+
+#### Patterns: several contacts at once (2026-11-26)
+
+Press **Pattern** in the *Stimulation* panel. A table appears with one row per station (−4 … +4) and one box per
+contact (the grey number is the contact id). Type a current in µA in any number of boxes: **negative = cathodic**,
+positive = anodic, empty = off (cathodes turn cyan, anodes red). The fields are summed in the browser as soon as
+you leave a box (or press *Apply*); **Shift+click** a contact in the 3D view cycles it through −1 → +1 → off µA.
+*Invert* swaps cathodes and anodes, *Clear* switches everything off. The model is linear, so a pattern is the sum
+of the single-contact potentials weighted by their currents (exported per contact as a 16-bit potential):
+
+- **V** and **AF+ / AF−** are computed from that sum: AF = ∂²V/∂z² over one internode with the actual polarities,
+  inside the fascicles; AF+ shows where fibres are depolarised (pushed to fire), AF− where they are
+  hyperpolarised (e.g. under an anode, the block region, and the virtual anodes beside a cathode);
+- **|E|** is a finite difference on the 50/100 µm grid (approximate next to the perineurium, where V jumps);
+  **|J|** is available for single contacts only;
+- the colour bar shows absolute values for the currents you typed (the *Current* box is not used).
+
+A link can open a pattern: `viewer/index.html?pattern=2:-10,44:20&heat=1` (contact:µA, comma-separated).
+With the Gmsh model (D-14) the viewer also draws the irregular fascicles displaced by the leads, the bent PDMS lead
+of each station (*leads* checkbox) and the PDMS sleeve (*cuff / sleeve*); the cut faces show the exact outlines.
+Data exported before 2026-11-26 still open (single contacts, circles), but patterns need a new `export_viewer_data`.
 
 #### Tutorial: a first look in five steps
 

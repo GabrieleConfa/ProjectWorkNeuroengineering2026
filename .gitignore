@@ -45,3 +45,8 @@ Thumbs.db
 desktop.ini
 .vscode/
 .obsidian/
+
+# Python / Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/

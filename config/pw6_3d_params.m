@@ -21,8 +21,17 @@ p = pw6_2d_params();
 p.set = "PW6-3D";
 
 %% Virtual patient -------------------------------------------------------------------------------
-p.patient.id   = "UA01";                % upper-arm patient no. 1
+p.patient.id   = "UA01";                % upper-arm patient no. 1 (results, meshes and caches are named after it)
 p.patient.seed = 1;                     % rng seed of the fascicle layout (NaN = tutor's P00 section)
+% Where the anatomy comes from (Gmsh mesher, src/mesh/gmshAnatomy.m; D-14). Running another patient
+% or a toy experiment = changing id + seed (or source / file) here; nothing else in the code.
+p.patient.source = "generator";         % "generator": our upper-arm generator makePatient (D-09)
+                                        % "virtual":   Marco's virtual patient V<seed> (repulsion packing)
+                                        % "file":      a JSON patient, p.patient.file (docs/patient_data.md)
+p.patient.fascicleShape = "irregular";  % [tutor: fascicles are neither circles nor ellipses] "irregular":
+                                        % random smooth shapes with the generator's centres and areas
+                                        % (roundness 0.68 +/- 0.08, Pusnik 2025); "circle": the generator's circles
+p.patient.file = "";                    % JSON file when source = "file"
 
 %% Cross-section generator (upper arm) — src/geometry/generateFascicleLayout.m ----------------------
 g = struct();
@@ -121,14 +130,32 @@ p.electrode.contactSigma_Spm = 1e3;             % [assumed] numerical stand-in f
 % net current).
 p.electrode.idleContacts  = "insulating";       % [group, as 2D]
 p.electrode.insulatorSigma_Spm = 1e-7;          % [assumed] numerical stand-in for an insulator
+p.electrode.pdmsSigma_Spm = 1e-7;               % [assumed] PDMS of the lead bodies and of the sleeve (Gmsh
+                                                % model): unfilled PDMS is an insulator (~1e-12 S/m), 1e-7 is a
+                                                % numerical stand-in. Marco's sensitivity: a filled, conductive
+                                                % PDMS would lower the cuff-pad R by 12-76 % (ask the tutor).
 
 %% Which contacts are solved (one 3D solve per contact) --------------------------------------------
-p.solve3d.sections = -4;                        % sections whose contacts are solved; [] = all 48
+p.solve3d.sections = [];                        % sections whose contacts are solved; [] = all 48.
+                                                % All 48 since the Gmsh model (D-14): every station has its
+                                                % own random lead insertion, so station +k is no longer the
+                                                % mirror of -k (the mirror trick of D-12 does not apply).
+                                                % (-4:-1 + mirror until 2026-11-26.)
 p.solve3d.saveSingle = true;                    % store the potentials in single precision
 
-%% 3D mesh (D-08) [assumed: first guess, to be fixed by the convergence study] ------------------
+%% 3D mesh (D-08, D-14) [assumed: first guess, to be fixed by the convergence study] ------------------
 % Linear tetrahedra only: the system is assembled by src/fem/assembleConductionP1.m (needed for the
 % perineurium thin layer, which the PDE Toolbox does not offer).
+p.mesh3d.mesher    = "gmsh";                    % [group 2026-11-26, D-14] "gmsh": Marco's model (irregular
+                                                % fascicles, bent PDMS leads, displaced fascicles, PDMS sleeve);
+                                                % needs Python with the gmsh package (pip install gmsh; or set
+                                                % NERVE_GMSH_PYTHON to a python.exe that has it).
+                                                % "pdetoolbox": the previous model (straight shanks, circles).
+p.mesh3d.cacheMode = "reuse";                   % "reuse": load the saved mesh of the same geometry from
+                                                % results/mesh/ if there is one, else generate and save it;
+                                                % "regenerate": always run the mesher (debugging the generator;
+                                                % the previous file is kept as *_previous.mat). Gmsh never gives
+                                                % the same mesh twice, so "reuse" is what keeps solved contacts valid.
 p.mesh3d.fineHalfLength_m = 12 * mm;            % fine zone |z| < 12 mm (contacts span |z| <= 10.4 mm)
 p.mesh3d.hContact_m = 30 * um;                  % on the faces of the contacts
 p.mesh3d.hEndo_m    = 100 * um;                 % fascicle boundaries and endoneurium, fine zone
@@ -137,7 +164,13 @@ p.mesh3d.hCoarse_m  = 500 * um;                 % all nerve faces outside the fi
 p.mesh3d.hMax_m     = 1.2 * mm;                 % muscle, largest element
 p.mesh3d.hMin_m     = 5 * um;
 p.mesh3d.hGrad      = 1.4;
-p.solve3d.solver    = "direct";                 % "direct" (backslash) | "pcg" (ichol preconditioner)
+p.mesh3d.hEdge_m    = 5 * um;                   % [group 2026-11-26, D-14] element size on the contact edges
+                                                % (0 = off). Marco: R converges with 5 um on the pad edges
+                                                % (+2 % internal, +5 % cuff pads vs no edge refinement,
+                                                % changes < 0.5 % below 5 um).
+p.solve3d.solver    = "pcg";                    % [group 2026-11-26, D-14] "pcg" (ichol preconditioner; much
+                                                % less memory; falls back to "direct" if it does not converge)
+                                                % | "direct" (backslash, ~3-7 min and most of the 32 GB per contact)
 p.solve3d.pcgTol    = 1e-9;
 p.solve3d.assemblyBlockSize = 150000;           % numerical: tetrahedra per block when assembling the
                                                 % stiffness matrix (bounds the temporary memory; from

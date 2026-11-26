@@ -12,8 +12,17 @@
 %                     J    |J| = |sigma grad V|, current density [A/m^2 = uA/mm^2] (log 8-bit code)
 %                     A    activating function for a CATHODIC pulse, -d2V/dz2 over one internode
 %                          [V/m^2], endoneurium only, depolarisation (> 0) only (log 8-bit code)
+%                     V16  potential [mV per uA], 16-bit LINEAR (int16 x scale): the viewer adds these
+%                          up to show ANY pattern of contacts with any currents (superposition)
 %   The files are JavaScript (not JSON or binary) because a page opened from disk (file://) may load
-%   scripts but not fetch files; the voxel arrays are base64 strings inside them.
+%   scripts but not fetch files; the voxel arrays are gzip-compressed and stored as base64 strings
+%   (the viewer decompresses them with the browser's DecompressionStream).
+%
+% Geometry (2026-11-26, Gmsh model D-14): geometry.js also carries the fascicle OUTLINES (irregular,
+%   undisplaced) and their displacement by the lead near each station, the PDMS lead body of each
+%   station (polygon + axial thickness), the PDMS sleeve (as the cuff wall), and a label for every
+%   voxel taken from the mesh (0 = no data, 1 = epineurium, 1+k = fascicle k, 200 = contact,
+%   250 = PDMS lead): the viewer uses it for the activating-function mask of the patterns.
 %
 % How V, E, J are sampled
 %   Grid: x, y over the bounding box of the nerve ellipse every gridStepXY_m, z over |z| <= zHalfSpan_m
@@ -66,6 +75,10 @@ if isfield(patient, 'nerveSemiAxes_m')                  % elliptical nerve (D-10
 else                                                    % result saved before 2026-11-22: circle
     ax = [R R];   rotN = 0;
 end
+sc = [];                                                % lead insertions of the Gmsh model (D-14)
+if isfield(p, 'personalGeometry') && isfield(p.personalGeometry.geometry, 'scenario')
+    sc = p.personalGeometry.geometry.scenario;
+end
 outDir = fullfile(root, 'results', 'viewer', patientId);
 if ~exist(outDir, 'dir'), mkdir(outDir); end
 
@@ -85,7 +98,7 @@ fprintf('Grid %d x %d x %d (%.1f M voxels, %.2f M inside the nerve): locating in
 % reused as long as both are unchanged (same run). locateRegularGrid searches only the nerve and
 % contact elements (the grid points are all inside the nerve).
 cacheFile = fullfile(outDir, 'gridLocation_cache.mat');
-key = [size(X, 2), size(T, 2), sum(X(:)), numel(xs), numel(ys), numel(zs), gridStepXY_m, gridStepZ_m];
+key = [size(X, 2), size(T, 2), sum(X(:)), numel(xs), numel(ys), numel(zs), gridStepXY_m, gridStepZ_m, 6];
 tic;
 cached = false;
 if isfile(cacheFile)
@@ -96,7 +109,7 @@ if cached
     tetId = C.tetId;   bary = C.bary;
     fprintf('   reused the cached location (%s)\n', cacheFile);
 else
-    nerveEl = find(ismember(elemTissue, [1 3 5]));
+    nerveEl = find(ismember(elemTissue, [1 3 5 6]));      % nerve, contacts and PDMS lead (Gmsh model)
     [tl_, bary] = locateRegularGrid(X, T(:, nerveEl), {xs, ys, zs}, inNerve);
     tetId = nan(size(tl_));   tetId(~isnan(tl_)) = nerveEl(tl_(~isnan(tl_)));
     created = out.created;
@@ -105,6 +118,14 @@ end
 clear C
 found = ~isnan(tetId);
 fprintf('   done in %.0f s; %d points not found in the mesh (left as "no data")\n', toc, nnz(~found));
+% label of every voxel, from the element that contains it: exact also for irregular and displaced
+% fascicles (0 = no data, 1 = epineurium, 1+k = fascicle k, 200 = contact, 250 = PDMS lead)
+inIdx = find(inNerve);
+labels = zeros(size(inNerve), 'uint8');
+tF = elemTissue(tetId(found));   cF = out.cells.fascicle(elemCell(tetId(found)));   cF = cF(:)';
+lab = zeros(1, nnz(found), 'uint8');
+lab(tF == 3) = 1;   lab(tF == 1) = uint8(1 + cF(tF == 1));   lab(tF == 5) = 200;   lab(tF == 6) = 250;
+labels(inIdx(found)) = lab;
 [ut, ~, loc] = unique(tetId(found));        % elements hit by the grid, and which one each point uses
 nodesOfPt = T(:, tetId(found))';            % nFound x 4
 
@@ -120,8 +141,9 @@ switch p.electrode.idleContacts
     case "insulating", sIdle = p.electrode.insulatorSigma_Spm;
     otherwise,         sIdle = p.electrode.contactSigma_Spm;
 end
+sP = 1e-7;   if isfield(p.electrode, 'pdmsSigma_Spm'), sP = p.electrode.pdmsSigma_Spm; end
 tissueSigma = [sigT(1) sigT(1) sigL(1); 0 0 0; sigT(3) sigT(3) sigL(3); sigT(4) sigT(4) sigL(4); ...
-               sIdle sIdle sIdle]';
+               sIdle sIdle sIdle; sP sP sP; sP sP sP]';      % 6, 7 = PDMS lead body and sleeve (Gmsh model)
 sigU = tissueSigma(:, elemTissue(ut));
 siteU = elemSite(ut);
 
@@ -139,15 +161,39 @@ for k = 1:height(sites)
     if ~isempty(j)
         s.location = res.location(j);   s.R_kOhm = round(res.R_kOhm(j), 3);
     end
-    if isfield(out, 'cuffFit') && any(out.cuffFit.id == sites.id(k))   % depth of the pad face centre
+    if isfield(out, 'cuffFit') && isfield(out.cuffFit, 'id') && any(out.cuffFit.id == sites.id(k))   % depth of the pad face centre
         s.indent_um = round(out.cuffFit.centreIndent_m(out.cuffFit.id == sites.id(k)) * 1e6, 2);
     end
     siteList{k} = s;
 end
 fascList = cell(height(F), 1);
+th64 = (0:63)' * 2 * pi / 64;
 for i = 1:height(F)
+    if isfield(patient, 'outlines')                     % irregular outline (Gmsh model), 64 vertices
+        P = patient.outlines{i};   idx = round(linspace(1, size(P, 1) + 1, 65));   P = P(idx(1:end-1), :);
+    else                                                % circle
+        P = [F.x_m(i) + F.rEndo_m(i) * cos(th64), F.y_m(i) + F.rEndo_m(i) * sin(th64)];
+    end
     fascList{i} = struct('id', i, 'x', toMm(F.x_m(i)), 'y', toMm(F.y_m(i)), 'r', toMm(F.rEndo_m(i)), ...
-                         'tPeri_um', round(F.tPeri_m(i) * 1e6, 2));
+                         'tPeri_um', round(F.tPeri_m(i) * 1e6, 2), 'outline', toMm(P));
+end
+leadList = {};   disp_ = struct('bump', 0, 'stations', {{}});   cuffKind = "void wall (insulating)";
+cuffWall = p.cuff.wallThickness_m;
+if ~isempty(sc)                                         % Gmsh model: leads, displacement, PDMS sleeve
+    for i = 1:numel(sc.stations)
+        st = sc.stations(i);
+        pb = polybuffer(st.path, 'lines', sc.leadWidth_m / 2, 'JointType', 'miter');
+        pb = intersect(pb, polyshape(sc.nerve));   rg = regions(pb);
+        [~, big] = max(arrayfun(@area, rg));   P = rg(big).Vertices;   P = P(all(isfinite(P), 2), :);
+        if size(P, 1) > 256, P = P(round(linspace(1, size(P, 1), 256)), :); end   % display only
+        leadList{end+1} = struct('section', st.section, 'z', toMm(st.z_m), ...
+                                 'thickness', toMm(sc.leadThickness_m), 'xy', toMm(P), ...
+                                 'pierced', find(st.pierce(:))', 'displaced', find(st.displace(:))', ...
+                                 'slid', find(st.deflect(:))'); %#ok<SAGROW>
+    end
+    disp_ = struct('bump', toMm(sc.bump_m), 'stations', ...
+                   {arrayfun(@(t) struct('z', toMm(t.z_m), 'shift', toMm(t.shift)), sc.stations, 'UniformOutput', false)});
+    cuffKind = "PDMS sleeve (insulating)";   cuffWall = sc.sleeveThickness_m;
 end
 model = struct( ...
     'patient', struct('id', patient.id, 'seed', patient.seed, 'level', string(patient.level), ...
@@ -155,7 +201,9 @@ model = struct( ...
     'units', "mm; fields for a 1 uA monopolar stimulus (return = grounded outer boundary)", ...
     'nerveRadius', toMm(R), 'nerveAxes', toMm(ax), 'nerveRotation', rotN, ...
     'nerveLength', toMm(p.domain.nerveLength_m), ...
-    'cuff', struct('length', toMm(p.cuff.length_m), 'wall', toMm(p.cuff.wallThickness_m)), ...
+    'cuff', struct('length', toMm(p.cuff.length_m), 'wall', toMm(cuffWall), 'kind', cuffKind), ...
+    'leads', {leadList}, 'displacement', disp_, 'afSpacing', toMm(p.plot3d.afSpacing_m), ...
+    'encoding', "gzip+base64", 'labels', gzB64(labels(:)'), ...
     'outerRadius', toMm(p.domain.outerRadiusFactor * max(ax)), ...
     'fascicles', {fascList}, 'sites', {siteList}, 'solvedIds', solved, ...
     'grid', struct('nx', numel(xs), 'ny', numel(ys), 'nz', numel(zs), 'x0', toMm(xs(1)), ...
@@ -167,14 +215,20 @@ writeJs(fullfile(outDir, 'geometry.js'), 'NV.setModel', model);
 
 %% ===== ONE FIELD FILE PER SOLVED CONTACT ==============================================
 inIdx = find(inNerve);
-% endoneurium mask and fascicle index of every voxel (the section is the same at every z)
+% endoneurium mask and fascicle index of every voxel: from the mesh labels (exact, also where the lead
+% displaces a fascicle); fasc2 (one section, for the printout) from the outlines
+fascOf = double(labels) - 1;   fascOf(labels < 2 | labels >= 200) = 0;
+inEndo = fascOf > 0;
 [GX2, GY2] = ndgrid(xs, ys);
 fasc2 = zeros(size(GX2));
 for i = 1:height(F)
-    fasc2((GX2 - F.x_m(i)).^2 + (GY2 - F.y_m(i)).^2 < F.rEndo_m(i)^2) = i;
+    if isfield(patient, 'outlines')     % Gmsh model: irregular outlines (undisplaced; the displacement by
+        P = patient.outlines{i};        % the lead near each station is not shown by the viewer yet)
+        fasc2(inpolygon(GX2, GY2, P(:,1), P(:,2))) = i;
+    else
+        fasc2((GX2 - F.x_m(i)).^2 + (GY2 - F.y_m(i)).^2 < F.rEndo_m(i)^2) = i;
+    end
 end
-fascOf = repmat(fasc2, 1, 1, numel(zs));
-inEndo = fascOf > 0;
 nF = height(F);
 mAF = round(p.plot3d.afSpacing_m / gridStepZ_m);    % internode in grid steps
 dzAF_m = mAF * gridStepZ_m;
@@ -207,7 +261,13 @@ for j = 1:numel(solved)
                    'data', struct('V', toVolume(codeV, inNerve, found), ...
                                   'E', toVolume(codeE, inNerve, found), ...
                                   'J', toVolume(codeJ, inNerve, found), ...
-                                  'A', matlab.net.base64encode(volA(:)')));
+                                  'A', gzB64(volA(:)')), ...
+                   'encoding', "gzip+base64");
+    % 16-bit linear potential for the patterns (superposition in the viewer): int16 = V / scale * 32767
+    v16 = zeros(size(inNerve), 'int16');
+    scaleV = max(abs(Vpt));                                              % [mV per uA]
+    v16(inIdx(found)) = int16(round(Vpt / scaleV * 32767));
+    field.V16 = struct('scale_mV', scaleV, 'data', gzB64(typecast(v16(:)', 'uint8')));
     writeJs(fullfile(outDir, sprintf('AS%d.js', id)), 'NV.addField', field);
     % First look at which fascicles this contact drives. Each grid line along z inside a fascicle is
     % taken as one fibre (uniform density), with its maximum AF along z; the fascicle is summarised by
@@ -251,7 +311,16 @@ function b64 = toVolume(code, inNerve, found)
 vol = zeros(size(inNerve), 'uint8');
 inIdx = find(inNerve);
 vol(inIdx(found)) = code;
-b64 = matlab.net.base64encode(vol(:)');
+b64 = gzB64(vol(:)');
+end
+
+function b64 = gzB64(bytes)
+%GZB64 gzip-compress a byte vector (Java, in memory) and encode it as base64.
+bos = java.io.ByteArrayOutputStream();
+gz = java.util.zip.GZIPOutputStream(bos);
+gz.write(typecast(uint8(bytes(:)'), 'int8'));
+gz.close();
+b64 = matlab.net.base64encode(typecast(bos.toByteArray()', 'uint8'));
 end
 
 function writeJs(fileName, fnName, s)

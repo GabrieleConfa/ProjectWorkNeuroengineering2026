@@ -68,6 +68,17 @@ params.activation.afThreshold         = NaN;  % activating-function threshold: t
 %% Safety (WP5) ----------------------------------------------------------------
 params.safety.shannonK      = NaN;            % Shannon criterion k: to find
 params.safety.cicGold_Cpm2  = NaN;            % charge-injection capacity of gold: to find
+% Electric-field exposure of the tissue (scripts/run_field_safety.m, 2026-11-26). Strong fields
+% electroporate cell membranes (tissue damage, and a field-dependent conductivity that the linear
+% FEM ignores). The threshold for nerve tissue is still to be sourced; until then the script
+% reports the exposure at several field levels.
+params.safety.electroporation_Vpm = NaN;      % electroporation threshold of nerve tissue: to find
+params.safety.fieldLevels_Vpm = [1e4 3e4 1e5 3e5];   % [assumed] 100, 300, 1000, 3000 V/cm: levels at
+                                              % which the exposed volume is reported
+params.safety.exposedVolume_m3 = 1e-12;       % [assumed] 1e-3 mm^3 = a (100 um)^3 cube: "critical
+                                              % current" = current at which this volume of tissue
+                                              % exceeds a field level (robust to the mesh, unlike
+                                              % the peak field at the contact edges)
 
 %% Virtual patients (WP1) ------------------------------------------------------
 params.patients.n     = NaN;                  % number of virtual patients: open decision

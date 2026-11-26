@@ -49,10 +49,30 @@ The project is organised in consecutive phases.
   `data/electrode/README.md`.
 - Active-site thickness: 5 µm in `sites.mat` vs 50 µm in the tutor's slides (factor 10).
 - The shank body carrying the intraneural sites: width, thickness, material; should it be in the model?
+  **2026-11-23 meeting:** the probe is 100 µm (width or thickness? still to ask) and it bends inside
+  the nerve, so yes, it goes in the model. Material still unknown.
 - Active faces of each site: both square faces or only one?
-- Does the shank pierce the fascicles it crosses (perineurium cut) or push them aside? (3D model:
-  "pierce" by default, D-09.)
-- Cuff wall: thickness and material (3D model: insulating, 0.5 mm assumed, D-05).
+- ~~Does the shank pierce the fascicles it crosses (perineurium cut) or push them aside?~~
+  **2026-11-23 meeting:** both. At each fascicle it pierces with a probability that grows with the
+  fascicle radius, otherwise it bends around it; the exit is on the line of the entry
+  (`design.md` §5.1). Still to ask: the probability law and its source.
+- Cuff wall: thickness and material (3D model: insulating, 0.5 mm assumed, D-05). **2026-11-23
+  meeting:** material PDMS, high impedance (consistent with the insulating wall). Thickness still
+  unknown.
+- ~~The two macro sites / all-round probes used to block the signal towards the amputated limb
+  (`design.md` §5.3): size, position along z, material.~~ **Clarified in the group (2026-11-25):**
+  the two sites are the two halves of the provided layout (sections −4…−1 and +1…+4, mirror
+  images, each station = TIME shank with 4 contacts + 2 cuff pads); the distal site repeats the
+  proximal pattern after a delay (D-12, `docs/block.md`). Still to ask the tutor:
+  - **Supervisor (2026-11-25):** the distal site uses the same electrodes as the proximal pattern,
+    **as cathodes**. The model (`docs/block.md` §6) gives two regimes: at the stimulation current,
+    collision (the distal stimulus still sends its own AP to the muscle); at ~60 × threshold,
+    cathodal block (works on some fibres, but excites every other fascicle). Still to ask: which
+    amplitude, pulse width and timing the device uses on the distal site, and whether the distal
+    pattern differs from the proximal one (more contacts, other polarities).
+  - which end of the device faces the shoulder (model: z < 0, irrelevant by symmetry);
+  - can the two sites be driven by independent channels with a delay, and with which pulse widths
+    (anodal block needs pulses of the order of 1 ms)?
 - Orientation of the device on the oval nerve: which cuff pads face the flat sides and which the
   curved ends (3D model: major axis along x, assumed, D-10). Closing force or pad gap of the cuff
   (3D model: rigid pads pressed 7 µm at the face edges, geometric, D-11).

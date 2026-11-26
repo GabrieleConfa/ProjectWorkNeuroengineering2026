@@ -98,3 +98,28 @@ For comparison, the TIME of Zelechowski 2020: AS circle 60 µm diameter; shaft 2
 | Electrode CIC, Pt-Ir / TiN | 0.05–0.3 / 0.07–3 mC/cm² [CHECK column alignment in the PDF] | course slides 08 | reference |
 | Tissue damage limit | Shannon criterion (log D = k − log Q) — k and source to verify | — | open |
 | AS material of the provided electrode | gold | PresentazionePW5_1105.pdf | given (CIC of gold still to find) |
+| Electroporation threshold of nerve tissue (field) | — | to find (`p.safety.electroporation_Vpm`; used by `scripts/run_field_safety.m`) | open |
+| Field levels reported by the exposure check | 100, 300, 1000, 3000 V/cm; critical volume 1e-3 mm³ | assumed (`p.safety.fieldLevels_Vpm`, `exposedVolume_m3`) | assumed |
+
+## Permittivities (frequency-dependent model, plan: `design.md` roadmap item 5)
+
+| Quantity | Value | Source | Status |
+|---|---|---|---|
+| Perineurium ε_r | 2018 ± 319 | Horn 2023 | candidate |
+| Perineurium sheet capacitance C_s = ε₀ε_r/t | ≈ 0.13 µF/cm² (computed here, t = 13.8 µm); paper reports 13.5 µF/cm² (issue H1) | Horn 2023 | open (H1) |
+| Epineurium ε_r | 9.4·10⁶ ± 8.2·10⁶ (Horn); 3.7·10⁶ (Lazorchak, unpublished canine data) | Horn 2023, Lazorchak 2022 | candidate |
+| Low/high-frequency ρ, epineurium | 68 / 1.3 Ω·m | Lazorchak 2022 Table 1 | candidate |
+| Low/high-frequency ρ, perineurium | 3460 / 273 Ω·m | Lazorchak 2022 Table 1 | candidate |
+| Endoneurium ε_r | — | to find | open |
+| Muscle ε_r | — | to find (candidate Gabriel 1996, Phys Med Biol 41:2271; not in `Papers/`) | open |
+
+## Gmsh model (D-14; values from Marco's branch, docs/algorithms_and_plan.md)
+
+| Quantity | Value | Source | Status |
+|---|---|---|---|
+| PDMS lead body cross-section | 0.10 × 0.10 mm | tip 100 µm (tutor, taken as a diameter); width = tip | assumed |
+| PDMS sleeve around the nerve | 0.15 mm thick, 50 mm long (= cuff length) | Marco | assumed |
+| PDMS conductivity | 1e-7 S/m (stand-in for an insulator, ~1e-12 S/m) | unfilled PDMS (Wacker) | assumed (tutor: filled or not?) |
+| Displacement fade along z | 0.4 mm each side of a station | Marco | assumed |
+| Cuff pad extra closure | 3 µm beyond full seating | Marco | assumed |
+| Edge element size | 5 µm | Marco's edge-refinement test (R converged) | chosen |

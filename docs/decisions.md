@@ -162,6 +162,8 @@ Why / source: group request (upper arm, 10 fascicles, no symmetry, biological va
 Consequence / limitation: circular fascicles (Brill & Tyler: 97% have circularity > 0.75); the
 spread of the sizes comes from one study of 4 nerves; whether the shank pierces or pushes the
 fascicles aside is still a question for the tutor.
+**To revise (tutor, 2026-11-23):** the probe pierces each fascicle with a probability that grows with
+its radius and bends around the others; the "pierce always" rule is to be replaced (`design.md` §5.1).
 
 ## D-10 — Elliptical nerve section (roundness 0.62), cuff shaped on it  (2026-11-22, phases 1, 3)
 Decision: the nerve section is an ellipse with the literature area (9.20 mm²) and minor/major axis
@@ -206,3 +208,158 @@ the old 10 µm at the centre on a circle and avoids slivers of tissue thinner th
 Consequence / limitation: no tissue mechanics: the indentation is geometric, not a pressure (Marco
 lists the closing force / pad gap as a tutor question). The few µm of tissue under the face are
 removed rather than compressed.
+**To revise (tutor, 2026-11-23):** the shank probe does bend inside the nerve (100 µm probe, exit on
+the line of the entry); alternative (ii) above is back on the table (`design.md` §5.1). The rigid,
+tangent cuff pads are not affected.
+
+## D-12 — Conduction block: two mirror sites, MRG fibres in NEURON on the existing 3D solution  (2026-11-25, block study)
+Decision: the block of the APs travelling towards the amputated limb (`design.md` §5.3) is studied on
+the 3D model as it is (UA01, the solution shown in the viewer), with no new geometry or solve:
+- **Sites** = the two halves of the provided layout: sections −4…−1 (z < 0) and +1…+4 (z > 0), which
+  are mirror images (same angles at −k and +k). z < 0 is called proximal (shoulder) `[assumed]`.
+- **Distal contacts by mirror**: V_k'(x, y, z) = V_k(x, y, −z) for the partner k' of a solved contact k
+  (same type, radius, angle, opposite z). Exact for this model (same section along z, D-03, and a
+  mirror-symmetric layout); only the mesh noise differs.
+- **Fibres**: straight lines parallel to z on the viewer grid, one every 100 µm `[assumed]`, at least
+  10 µm inside a fascicle circle; lines through a contact are dropped (453 fibres kept, 23 dropped).
+  V sampled every 50 µm over |z| ≤ 33 mm, P1 interpolation on the endoneurium side of the thin layer
+  (as the viewer). Code: `src/block/sampleFibreProfiles.m`, `scripts/export_block_profiles.m`.
+- **Fibre model**: MRG (McIntyre, Richardson & Grill 2002, ModelDB 3810) rebuilt in Python/NEURON
+  (`src/block/mrg_fibre.py`) so that length and diameter are parameters: 60 mm long, centred on
+  z = 0, one node at the proximal stimulating station `[assumed]`, D = 10 µm for the first runs;
+  the FEM potential is applied as `e_extracellular` of every compartment.
+- **Scenarios** (`scripts/run_block_study.py`): proximal monopolar cathodic 50 µs pulse (Zelechowski
+  2020) at 1.2 × the 10%-of-fibres threshold of the most excitable fascicle `[assumed]`; (a) collision
+  = the same pattern repeated on the distal mirror contacts after a delay (0–0.8 ms); (b) anodal block
+  = the distal contacts driven with reversed polarity, 1 ms pulse `[assumed]`, 1–16 × the proximal
+  current; (c) cathodal block (supervisor, 2026-11-25: "on the other side the same electrodes work
+  as cathodes to cancel the signal") = the distal mirror contacts as cathodes at 2–64 × the
+  proximal current, onset delay 0–0.6 ms, width 50/200/500 µs `[assumed]`, swept on the target
+  fascicle, the best settings re-checked on all fibres. APs are counted 5 mm from each fibre end;
+  success = no AP at the distal end and the same APs at the proximal end as the proximal pulse
+  alone. Each pattern names its target fascicle; exact thresholds (bisection) are computed only for
+  the target fascicle's fibres, the others are simulated once at the stimulation current (user
+  2026-11-25, speed: ~15 min → a few minutes; `--all-thresholds` restores the full table).
+Alternatives: ring electrodes added to the cuff (rejected: the sites are the existing contacts,
+user 2026-11-25); a MATLAB node-only fibre model (CRRSS, Sweeney 1987: simpler and self-contained,
+user chose MRG); the activating function alone (it shows where the membrane is depolarised or
+hyperpolarised but cannot tell whether an AP is blocked or collides); solving the distal contacts
+(≈ 3.5 min each; needed only if the section changes along z); kilohertz (KHFAC) block (later: needs
+the frequency-dependent conductivity, `design.md` §5.5).
+Why / source: tutor meeting 2026-11-23 and user 2026-11-25 (pattern repeated distally with a delay;
+"anodal now, KHFAC later"; MRG in NEURON); MRG is the fibre model of Zelechowski 2020 (same
+pipeline, 50 µs pulse, 10% criterion); course slides 03 p. 23: currents > 8 × threshold block
+conduction (cathodal block, seen in the model).
+Consequence / limitation: one fibre diameter per run; straight, parallel fibres (no fascicle
+branching along the arm, so the "same pattern" excites the same fascicles at both sites, which a
+real nerve does not guarantee); the mirror trick fails as soon as the section changes along z (then
+solve the distal contacts); multi-contact patterns rely on superposition with insulating idle
+contacts (D-07, approximate); node alignment is the best case at the proximal station only, so the
+distal threshold of the same fibre differs; quasi-static tissue (the 50 µs pulse has content above
+the perineurium corner frequency, Horn 2023); no electrode–tissue interface; the safety of the large
+anodal currents (Shannon, CIC) is not checked yet.
+**Update 2026-11-26 (supervisor):** in the anode–cathode configuration, the active contacts of the
+anode (distal) site are the same as those activated on the cathode (proximal) site, i.e. the mirror
+partners of the proximal pattern with reversed polarity (AS 2 → AS 44). Spreading the anode over
+other contacts (other shank contacts, cuff pads) is therefore excluded; the free variables are the
+anodal current and the pulse shape/timing (trapezoidal ramps). Code:
+`notebooks/block_anode_cathode.ipynb`, which derives the anode pattern from `PROX_PATTERN`.
+**Result and next step (2026-11-26, group):** with the same contact as anode (AS 44) the fibre is
+fired by the virtual cathodes from 17.5 µA (1.7 × I_stim), with or without 0.1–1 ms ramps, and no
+block is found up to 2 mA (`docs/block.md` §6). As our own extension beyond the supervisor's rule,
+to be shown to the tutor, other distal anode configurations will be compared (all 24 distal contacts
+as a "wall", the cuff pads only, whole stations, several stations along z). For this the whole
+proximal half is solved (`p.solve3d.sections = -4:-1`, contacts 1–24) and the distal half is taken by
+mirror; the solve loop now writes each contact to `results/main3d/<id>_contacts/` and resumes from
+there.
+
+## D-13 — Merge of Marco's push 274b485: insertion model, convergence method, pipeline split  (2026-11-26, phases 1, 3, 4)
+Decision: from Marco's branch `cuff-oval-viewer-convergence` (commit 274b485, 2026-11-26, his
+separate Gmsh "personal" model), the parts the user asked for are brought into main and adapted to
+the main 3D model; his separate pipeline stays on his branch.
+- **Lead insertion (probe bending and piercing).** `src/insertion/simulateInsertion.m` and
+  `config/insertionParams.m` copied from his branch (algorithm: `docs/algorithms_and_plan.md` §4, his
+  document, copied unchanged): 2D Monte Carlo per station; at a grazing contact the lead slides
+  around the fascicle; at a head-on contact the fascicle is displaced if there is room and the hand
+  force beats its stiffness, otherwise the lead pierces it if the force beats the puncture force.
+  Forces **not calibrated** (puncture 2 mN from a tungsten needle in rabbit, Jensen 2001; hand force
+  assumed): outcome frequencies are indicative, not probabilities. Added on main, off by default:
+  `pierceModel = "probability"`, the tutor's rule (meeting 2026-11-23: small fascicles of our model
+  very low probability, large ones high) with the angle of penetration added (user 2026-11-26): at
+  the first contact with a fascicle the lead pierces it with P = 1/(1 + (r50/r)^n) · cos(γ)^m
+  (`src/insertion/pierceProbability.m`; r = √(A/π), γ = angle between the heading and the perineurium
+  normal), drawn once per fascicle, otherwise it bends around it; `returnToLine` steering keeps the
+  exit on the line of the entry. r50 = 0.38 mm, n = 6, m = 2 `[assumed]`, chosen so that on UA01
+  head-on F10 (0.17 mm) ≈ 1 %, F7 (0.28 mm) ≈ 13 %, F3 (0.43 mm) ≈ 69 %, F1 (0.69 mm) ≈ 97 %, halved at
+  45°; law and values to ask the tutor (the angle dependence could be fitted to Sergi, Jensen &
+  Yoshida, arXiv:1308.0525, not yet read).
+  the tutor). Runs on our patient through `src/insertion/insertionGeometry.m` and
+  `insertionStations.m`; study `scripts/run_insertion_3d.m` (both models, P(pierce | contact) vs
+  fascicle radius); test `tests/testInsertion3D.m`. Irregular fascicle shapes
+  (`src/geometry/randomFascicleShapes.m`, `nerveBoundaryRadius.m`, copied) are used in that study only.
+- **Not yet in the 3D geometry.** The FEM model still has straight shanks that pierce what they
+  cross (D-09) and circular fascicles; D-09 and D-11 are therefore **not** revised yet. Putting the
+  bent lead and the displaced/irregular fascicles into `buildNerveGeometry3D` (PDE Toolbox, layered
+  extrusion) is the next step and a design choice of its own (extend our builder, or move to a Gmsh
+  mesher like Marco's).
+- **Mesh convergence.** `main_pipeline_3d` split into `src/main/build3DModel.m` (patient → assembly)
+  and `src/main/solve3DContacts.m` (solve, per-contact cache), with the same computation (the cache
+  key checks it). `scripts/run_convergence_3d.m` follows Marco's algorithm (all element sizes scaled
+  by one factor, ratio 1.3; observed order, Richardson, GCI with order check) plus the checks of
+  `design.md` §4: a remeshed production level as noise floor and quantities at fixed points (R, V at
+  fascicle centres, activating function).
+- **Edge refinement.** Marco found R rising by 2–5 % with 5 µm elements on the pad edges (converged
+  below ~5 µm). Ported as `p.mesh3d.hEdge_m` (PDE Toolbox `Hedge` on the contact edges), **0 = off**
+  in production until the convergence study measures it on our mesh (turning it on changes the mesh,
+  so all contacts must be solved again). pcg now accepts a stagnation below relres 1e-8 (his fix).
+Not taken (on his branch, to discuss with him): the Gmsh personal pipeline (`mesh_personal.py`,
+`personalDevice3D`, quicklook files), PDMS lead body and sleeve (needs the geometry step above), the
+patient/function layer (`src/patient`, motor patches, V001.json; useful later for roadmap item 6),
+his viewer and report changes, and his `main_pipeline_3d.m`, which is based on an older main (it
+would undo D-10, D-11 and the per-contact cache).
+Why / source: user 2026-11-26 ("mesh convergence algorithm, the way the probe curves in the nerve,
+the probability of piercing the fascicles"); tutor meeting 2026-11-23.
+
+## D-14 — Gmsh model (Marco's) with our solver, mesh cache, edge refinement, pcg, all 48 contacts  (2026-11-26, phases 1, 3, 4)
+Decision (user 2026-11-26, after the review of Marco's push 274b485):
+- **Mesher: Marco's Gmsh model** (`p.mesh3d.mesher = "gmsh"`; `src/mesh/meshPersonalDevice.m` +
+  `mesh_personal.py`, copied unchanged with their dependencies: `personalDevice3D`, `quicklook3DParams`,
+  `insertionScenario`, `cuffContactPlane`, `cuffDeformedRadius`, `checkCuffMeshContact`, `src/patient/`).
+  The geometry gains what the tutor asked for: irregular fascicles; one random lead insertion per
+  station (PDMS lead body 0.10 × 0.10 mm bent around or through the fascicles, pads placed along it,
+  displaced fascicles fading out over 0.4 mm along z); an oval PDMS sleeve (0.15 mm, insulating)
+  instead of the void cuff wall; flat cuff pads on the oval with a geometric indentation (3 µm extra
+  closure; checked: each pad shares exactly 0.040 mm² with the epineurium). Pierce rule of the
+  production insertions: the tutor's probability by fascicle size and angle (D-13,
+  `pierceModel = "probability"`). **Our solver is kept**: `build3DModel` assembles the same P1 system
+  with the perineurium thin layer (interface = nodes shared by endoneurium and epineurium; grounded
+  nodes found by coordinates; PDMS conductivity `p.electrode.pdmsSigma_Spm` = 1e-7 S/m); then
+  `solve3DContacts`, the per-contact cache, the block study and the viewer export follow as before.
+  The previous PDE Toolbox model stays available (`mesher = "pdetoolbox"`). For the Gmsh model this
+  revises D-03 (layered extrusion), D-05 (void cuff wall → PDMS sleeve), D-07 (no shank body → PDMS
+  lead body), D-09 ("always pierce" → probability) and D-11 (rigid pads pressed in → Marco's contact plane).
+- **Mesh cache** (`p.mesh3d.cacheMode`): Gmsh is not deterministic (multithreaded), and a new mesh
+  invalidates every solved contact. The mesh is saved in `results/mesh/<id>_<mesher>_<key>.mat`, key =
+  MD5 of anatomy, insertions, contact poses, domain and element sizes. "reuse" (default) loads it if
+  the key matches, otherwise generates and saves; "regenerate" always meshes again (debugging the
+  generator), keeping the previous file as `*_previous.mat` for comparison. Changing the patient or
+  the fascicle layout (toy experiments) changes the key, so a new mesh is made automatically. The
+  solved contacts are cached per mesh (`results/main3d/<id>_contacts/<mesh file>/`).
+- **Patients** (`p.patient.source`): "generator" (our makePatient, D-09; outlines irregular with the same
+  centres and areas, or circles: `p.patient.fascicleShape`), "virtual" (Marco's V<seed>), "file" (JSON,
+  `docs/patient_data.md`). Several patients and toy experiments = changing id/seed/source; outputs,
+  meshes and caches are all named after the patient id (user: run everything for different patients
+  and toy experiments, with useful statistics as output).
+- **Edge refinement on**: `p.mesh3d.hEdge_m` = 5 µm (Marco: R +2 % internal, +5 % cuff pads, converged
+  below 5 µm). **pcg** solver (`p.solve3d.solver`), with automatic fallback to the direct solver if it
+  does not converge (relres > 1e-8); the current balance is still checked per contact.
+- **All 48 contacts solved** (`p.solve3d.sections = []`): each station has its own insertion, so
+  station +k is no longer the mirror of −k and the mirror trick of D-12 does not apply (the export
+  mirrors only unsolved contacts, so it simply does nothing). The block study's fibre lines follow the
+  irregular outlines (`sampleFibreProfiles`).
+Not done yet: the viewer still draws circular fascicles and no lead body (`export_viewer_data` only
+patched so that it runs); Marco's viewer has polygon shells for this. Domain kept at 70 mm (D-02);
+Marco used 60 mm.
+Consequences: everything must be solved again (new mesh). Requires Python with `gmsh`
+(`python -m pip install gmsh`, or `NERVE_GMSH_PYTHON` pointing to a python.exe that has it). One
+insertion draw per station is one random sample: statistics need several seeds and patients.
