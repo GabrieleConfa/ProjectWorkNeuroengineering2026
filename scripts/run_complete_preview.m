@@ -17,6 +17,6 @@ if mode=="deflect" % Keep the personal review link in sync on future geometry ch
 end % Preserve the distinct penetration scenario.
 exportgraphics(model.graphics.deviation,fullfile(outDir,"deflection_"+mode+".png"),Resolution=180); % Save the routed versus straight comparison.
 exportgraphics(model.graphics.cuff,fullfile(outDir,"local_cuff_"+mode+".png"),Resolution=180); % Save the magnified cuff footprint and axial return.
-model.graphics.functions = plotFascicleMap(anatomyParams); % Draw dimensions and available functional assignments.
+model.graphics.functions = plotFascicleMap(anatomyParams); % Draw the fascicle map and dimensions.
 exportgraphics(model.graphics.functions,fullfile(outDir,"fascicle_map.png"),Resolution=180); % Save the labelled anatomy beside the eight sections.
 end % Return the 3D figure and model after all graphics are produced.

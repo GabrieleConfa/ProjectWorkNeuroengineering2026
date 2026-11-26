@@ -42,6 +42,11 @@ eDecades     = 3;          % |E| and |J| are coded over this many decades below 
 %% ===== LOAD ===========================================================================
 mm = 1e-3;   uA = 1e-6;
 S = load(fullfile(root, 'results', 'main3d', patientId + "_3d.mat"), 'out');   out = S.out;
+if isfield(out.params,'personalGeometry') && isfield(out.params.personalGeometry.geometry,'scenario') && ~isempty(out.params.personalGeometry.geometry.scenario) % Insertion mode.
+    qNow = quicklook3DParams(); old = out.params.personalGeometry.geometry; % Refresh the patient description (functions) from the current configuration, only if the solved geometry is unchanged.
+    samePaths = isequal(arrayfun(@(s)s.path,old.scenario.stations,'UniformOutput',false),arrayfun(@(s)s.path,qNow.geometry.scenario.stations,'UniformOutput',false));
+    if isequal(old.scenario.polys0,qNow.geometry.scenario.polys0) && samePaths, out.params.personalGeometry.geometry.patient = qNow.geometry.patient; end
+end
 X = double(out.mesh.nodes_m);   T = double(out.mesh.tets);
 elemCell = double(out.mesh.elemCell);
 elemTissue = out.cells.tissue(elemCell);   elemTissue = elemTissue(:)';
@@ -101,8 +106,9 @@ switch p.electrode.idleContacts
     case "insulating", sIdle = p.electrode.insulatorSigma_Spm;
     otherwise,         sIdle = p.electrode.contactSigma_Spm;
 end
+sPDMS = p.electrode.pdmsSigma_Spm; % Conductivity of the PDMS lead bodies and sleeve.
 tissueSigma = [sigT(1) sigT(1) sigL(1); 0 0 0; sigT(3) sigT(3) sigL(3); sigT(4) sigT(4) sigL(4); ...
-               sIdle sIdle sIdle]';
+               sIdle sIdle sIdle; sPDMS sPDMS sPDMS; sPDMS sPDMS sPDMS]';
 sigU = tissueSigma(:, elemTissue(ut));
 siteU = elemSite(ut);
 
@@ -114,12 +120,17 @@ model=viewerGeometry(out,xs,ys,zs,gridStepXY_m,gridStepZ_m); % Reuse the interac
 inIdx = find(inNerve);
 % endoneurium mask and fascicle index of every voxel (the section is the same at every z)
 [GX2, GY2] = ndgrid(xs, ys);
-fasc2 = zeros(size(GX2));
-for i = 1:height(F)
-    [xx,yy]=fascicleOutline(F,i,linspace(0,2*pi,361)); % Use the actual rotated endoneurial contour.
-    fasc2(inpolygon(GX2,GY2,xx,yy))=i; % Assign this fascicle's grid points.
+fascOf = zeros(numel(xs),numel(ys),numel(zs)); % Fascicle index of every voxel.
+sc3 = []; if isfield(p,'personalGeometry') && isfield(p.personalGeometry.geometry,'scenario') && ~isempty(p.personalGeometry.geometry.scenario), sc3 = p.personalGeometry.geometry.scenario; end % Random fascicles displaced by the leads, if any.
+for iz = 1:numel(zs) % The outlines change along z near the stations (insertion mode).
+    fasc2 = zeros(size(GX2));
+    if ~isempty(sc3), P = scenarioFascicles(sc3,zs(iz)); for i = 1:numel(P), fasc2(inpolygon(GX2,GY2,P{i}(:,1),P{i}(:,2))) = i; end % Irregular outlines at this z.
+    else
+        for i = 1:height(F), [xx,yy] = fascicleOutline(F,i,linspace(0,2*pi,361)); fasc2(inpolygon(GX2,GY2,xx,yy)) = i; end % Actual rotated endoneurial contour.
+    end
+    fascOf(:,:,iz) = fasc2; % Store this section.
 end
-fascOf = repmat(fasc2, 1, 1, numel(zs));
+
 inEndo = fascOf > 0;
 nF = height(F);
 mAF = round(p.plot3d.afSpacing_m / gridStepZ_m);    % internode in grid steps

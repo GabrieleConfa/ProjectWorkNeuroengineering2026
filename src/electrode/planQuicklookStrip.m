@@ -1,4 +1,7 @@
 function strip = planQuicklookStrip(p, sites, cuffSites, mode) % Place one transverse strip and its contact faces.
+if mode=="deflect" && isfield(p.geometry,'scenario') && ~isempty(p.geometry.scenario) % Insertion mode: use the random insertion scenario.
+    strip = scenarioStrip(p,sites,cuffSites); return % Lead from the entry wall to the opposite wall, pads placed along it.
+end
 if mode=="deflect" && isfield(p.electrode,'routingModel') && p.electrode.routingModel=="beam" % Use the current physical model for new cases.
     strip=equilibriumStrip(p,sites,cuffSites); % Solve for the minimum-energy admissible shape.
     return % Older saved cases retain their original pad coordinates in the export.

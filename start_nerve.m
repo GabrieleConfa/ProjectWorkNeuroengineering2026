@@ -2,17 +2,21 @@ function start_nerve(action) % Press Run once to calculate and display the perso
 %% 1. Set up this checkout
 if nargin==0,action="run";end % Run the complete model when launched from the MATLAB editor.
 root=fileparts(mfilename('fullpath')); addpath(root); setup_paths(); % Resolve every source relative to this file.
+previousVisibility=get(groot,'DefaultFigureVisible'); set(groot,'DefaultFigureVisible','off'); restoreVisibility=onCleanup(@()set(groot,'DefaultFigureVisible',previousVisibility)); %#ok<NASGU> % Draw figures off screen: they are saved as PNG files and shown in the browser gallery (this also keeps unattended runs reliable).
 %% 2. Run the personal workflow or reopen existing results
 switch string(action) % Shortcuts open a saved result without repeating the numerical solve.
     case "run"
         q=quicklook3DParams(); % Load the common anatomy, material and closure settings.
-        fprintf('1/4  Anatomy, routed leads and figures\n'); run_complete_preview("deflect",q); % Draw the same section used in the FEM.
-        fprintf('2/4  Connected sections, tetrahedral mesh and 48 electrical fields\n'); run_personal_3d(); % Solve the entire personal case.
-        fprintf('3/4  Mesh convergence study (4 meshes, 3 pads)\n'); run_convergence_study(); % Check how much the results still change when the mesh is refined.
-        fprintf('4/4  Opening the gallery, mesh and stimulation viewer in Chrome\n'); % Report the final display step.
+        fprintf('1/5  Anatomy, routed leads and figures\n'); run_complete_preview("deflect",q); % Draw the same section used in the FEM.
+        fprintf('2/5  Connected sections, tetrahedral mesh and 48 electrical fields\n'); run_personal_3d(); % Solve the entire personal case.
+        fprintf('3/5  Mesh convergence study (4 meshes, 3 pads)\n'); run_convergence_study(); % Check how much the results still change when the mesh is refined.
+        fprintf('4/5  Random fascicle shapes and lead insertion (Monte Carlo)\n'); run_insertion_study(); % Scenario study with irregular fascicles.
+        fprintf('5/5  Opening the gallery, mesh and stimulation viewer in Chrome\n'); % Report the final display step.
         pages=["figure","mesh","personal"]; % Open the field viewer last.
     case "convergence"
         run_convergence_study(); pages="figure"; % Repeat only the mesh study and show it in the gallery.
+    case "insertion"
+        run_insertion_study(); pages="figure"; % Repeat only the insertion study and show it in the gallery.
     case "geometry"
         run_complete_preview(); pages="figure"; % Rebuild the anatomical views alone.
     case "open"
@@ -24,7 +28,7 @@ switch string(action) % Shortcuts open a saved result without repeating the nume
     case "figures"
         pages="figure"; % Open the current figure gallery.
     otherwise
-        error('Use start_nerve, or specify open, convergence, geometry, figures, mesh or viewer.'); % Report unsupported operations.
+        error('Use start_nerve, or specify open, convergence, insertion, geometry, figures, mesh or viewer.'); % Report unsupported operations.
 end % Finish the requested numerical work.
 %% 3. Open the interactive results in Chrome using an absolute, URL-encoded local path
 for page=pages % Show each requested page.

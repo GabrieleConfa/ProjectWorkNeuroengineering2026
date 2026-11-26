@@ -17,13 +17,7 @@ for k = 1:numel(model.strips) % Walk through every axial section in the tutor's 
     y = mm*model.nerve.y_m(iz,:); % Read its transverse y positions.
     epi = fill(ax,x,y,[0.97 0.91 0.77],EdgeColor=[0.35 0.29 0.22],LineWidth=1.5); % Show epineurium and its outer edge.
     plot(ax,x,y,Color=[0.13 0.38 0.92],LineWidth=2); % Draw the cuff wrapped around this station.
-    for j = 1:size(fasc,1) % Draw the perineurium and endoneurium of each fascicle.
-        xyOuter = ellipsePoints(fasc(j,:),p.geometry.tPeri_m,theta); % Get the outer perineurial boundary.
-        xyInner = ellipsePoints(fasc(j,:),0,theta); % Get the endoneurial boundary.
-        peri = fill(ax,mm*xyOuter(:,1),mm*xyOuter(:,2),[0.65 0.40 0.35],EdgeColor="none"); % Show the perineurium as a distinct band.
-        endo = fill(ax,mm*xyInner(:,1),mm*xyInner(:,2),[0.96 0.75 0.68],EdgeColor=[0.53 0.29 0.28]); % Show endoneurium within that band.
-        text(ax,mm*fasc(j,1),mm*fasc(j,2),string(j),HorizontalAlignment="center",FontSize=8); % Identify each fascicle by its current row number.
-    end % Finish the ten provisional fascicles.
+    fp = stationFasc(strip,p); h = drawFascicles(ax,fp,p.geometry.tPeri_m,mm,true); peri = h.peri; endo = h.endo; % Fascicles of this station (random shapes after the insertion).
     [segments_m,straight_m] = visibleInsertionSegments(strip); % Read the single-entry carrier.
     path = mm*segments_m(:,1:2); % Convert the connected lead to millimetres.
     reference = plot(ax,mm*straight_m(:,1),mm*straight_m(:,2),'--',Color=[0.43 0.43 0.43],LineWidth=1); % Show the undeviated insertion axis.
@@ -60,13 +54,7 @@ strip = model.strips(1); % Select section -4 for the close-up.
 [~,iz] = min(abs(model.nerve.z_m(:,1)-strip.path_m(1,3))); % Select its flattened cross-section.
 fill(ax,mm*model.nerve.x_m(iz,:),mm*model.nerve.y_m(iz,:),[0.97 0.91 0.77], ...
     EdgeColor=[0.35 0.29 0.22],LineWidth=1.6); % Show the epineurium and outer edge.
-for j = 1:size(fasc,1) % Draw the separate tissue sheaths for every fascicle.
-    outer = ellipsePoints(fasc(j,:),p.geometry.tPeri_m,theta); % Compute the perineurial exterior.
-    inner = ellipsePoints(fasc(j,:),0,theta); % Compute the endoneurial interior.
-    fill(ax,mm*outer(:,1),mm*outer(:,2),[0.65 0.40 0.35],EdgeColor="none"); % Display the perineurial band.
-    fill(ax,mm*inner(:,1),mm*inner(:,2),[0.96 0.75 0.68],EdgeColor=[0.53 0.29 0.28]); % Display the endoneurium.
-    text(ax,mm*fasc(j,1),mm*fasc(j,2),"F"+j,HorizontalAlignment="center"); % Label fascicles without assumed functional assignments.
-end % Finish anatomical layers.
+drawFascicles(ax,stationFasc(strip,p),p.geometry.tPeri_m,mm,true); % Fascicles of this station.
 [segments_m,straight_m] = visibleInsertionSegments(strip); % Get the routed and straight single-entry paths.
 path = mm*segments_m(:,1:2); % Read only the visible candidate segments in millimetres.
 straight = mm*straight_m(:,1:2); % Read their straight reference without a through-nerve line.
@@ -96,3 +84,7 @@ c = cosd(f(5)); s = sind(f(5)); % Rotate the fascicle in the transverse plane.
 xy = [f(1)+a*cos(theta(:))*c-b*sin(theta(:))*s, ...
       f(2)+a*cos(theta(:))*s+b*sin(theta(:))*c]; % Return boundary coordinates in metres.
 end % Finish the ellipse sampler.
+
+function fp = stationFasc(strip,p) % Outlines of the station: from the strip (insertion mode) or from the editable ellipses.
+if isfield(strip,'fascicles') && ~isempty(strip.fascicles), fp = strip.fascicles; else, fp = stationFascicles(p,strip.section); end
+end

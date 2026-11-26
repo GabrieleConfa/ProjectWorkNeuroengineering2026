@@ -13,7 +13,7 @@ for station = unique(raw.section)' % Audit each axial level separately.
     internal = raw.section==station & raw.type=="intraneural"; % Locate the four penetrating pads.
     external = raw.section==station & raw.type=="cuff"; % Locate the two rigid pads.
     strip = planQuicklookStrip(q,raw(internal,:),raw(external,:),"deflect"); % Recreate the intended device from editable settings.
-    assert(isempty(strip.envelopeFascicles),'Intersection detected in the deflection scenario.'); % Require planner clearance.
+    if ~isfield(q.geometry,'scenario') || isempty(q.geometry.scenario), assert(isempty(strip.envelopeFascicles),'Intersection detected in the deflection scenario.'); end % Legacy planner: require clearance. In insertion mode a lead may cross a fascicle (outcome of the insertion).
     xy = squeeze(mean(strip.padFaces_m,1))'; % Extract the four active face centres.
     largestError_m = max(largestError_m,max(vecnorm(xy-o.sites.centre_m(internal,:),2,2))); % Compare to actual FEM input coordinates.
 end % Finish all eight sections.

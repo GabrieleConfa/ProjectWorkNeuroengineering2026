@@ -5,7 +5,7 @@ g.sites=sites(sites.section==section,:); % Use the six physical contacts belongi
 raw=loadActiveSites(q.electrode.sitesFile,q.geometry.radius_m); % Recover the incoming geometry for the approved lead planner.
 cuff=raw(raw.section==section & raw.type=="cuff",:); % Select both opposing pads.
 strip=planQuicklookStrip(q,raw(raw.section==section & raw.type=="intraneural",:),cuff,"deflect"); % Recover the continuous one-sided lead.
-g.path=strip.path_m(:,1:2); g.f=q.geometry.fascicles_m; % Store the path and oriented fascicles for the plots.
+g.path=strip.path_m(:,1:2); g.f=q.geometry.fascicles_m; g.polys=stationFascicles(q,section); % Store the path, the legacy ellipses and the fascicle outlines of this station for the plots.
 shell=buildQuicklookNerve(q,cuff); % Use the exact angular samples through the pad edges.
 [~,j]=min(abs(shell.z_m(:,1)-cuff.z_m(1))); % Sample the centre plane of the pad.
 xy=[shell.x_m(j,1:end-1)' shell.y_m(j,1:end-1)']; % Retain one vertex per circumferential ray.

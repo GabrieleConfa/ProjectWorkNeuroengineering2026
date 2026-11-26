@@ -9,7 +9,7 @@ t=tiledlayout(fig,1,2,TileSpacing="compact"); ax=nexttile(t); hold(ax,'on'); % D
 for sec=sections' % Draw the actual footprint and carrier for every axial station in the end-on projection.
     station=personalStation2D(sec,q); plot(ax,1e3*station.path(:,1),1e3*station.path(:,2),Color=[0.13 0.38 0.92]); % Show the station-specific insertion.
 end % Finish the eight independent sections.
-angles=linspace(0,2*pi,241); for k=1:height(patient.fascicles),[xx,yy]=fascicleOutline(patient.fascicles,k,angles);plot(ax,1e3*xx,1e3*yy,'k-');end % Show the anatomical context for all projected sites.
+angles=linspace(0,2*pi,241); for P=stationFascicles(q,0)', plot(ax,1e3*[P{1}(:,1);P{1}(1,1)],1e3*[P{1}(:,2);P{1}(1,2)],'k-'); end % Show the undisturbed fascicles as anatomical context for all projected sites.
 ray=[cos(angles(:)),sin(angles(:))]; rim=ray.*nerveBoundaryRadius(q,ray);plot(ax,1e3*rim(:,1),1e3*rim(:,2),'k-'); % Mark the native envelope of the combined projection.
 fp=contactFootprints(sites); % Include every distinct pad footprint across all stations.
 for k=1:numel(fp) % Label each contact on the section.
@@ -34,8 +34,8 @@ raw=loadActiveSites(q.electrode.sitesFile,q.geometry.radius_m); shell=buildQuick
 sel=shell.z_m(:,1)>=-13e-3 & shell.z_m(:,1)<=-7.5e-3; % Crop the original region of interest to its first two insertions.
 surf(ax,1e3*shell.x_m(sel,:),1e3*shell.y_m(sel,:),1e3*shell.z_m(sel,:),FaceColor=[0.86 0.69 0.48],FaceAlpha=0.16,EdgeColor="none"); % Expose the internal device through the tissue.
 th=linspace(0,2*pi,121); z=1e3*[min(shell.z_m(sel,1));max(shell.z_m(sel,1))]; % Use the same physical axial crop for fascicles.
-for k=1:height(patient.fascicles) % Extrude each fascicle at its current position.
-    [x,y]=fascicleOutline(patient.fascicles,k,th); surf(ax,repmat(1e3*x(:)',2,1),repmat(1e3*y(:)',2,1),repmat(z,1,numel(x)),FaceColor=[0.84 0.52 0.43],FaceAlpha=0.12,EdgeColor="none"); % Preserve the rotated shape.
+for P=stationFascicles(q,0)' % Extrude each undisturbed fascicle (the displaced positions are drawn in the station figures).
+    x=P{1}(:,1)'; y=P{1}(:,2)'; surf(ax,repmat(1e3*x,2,1),repmat(1e3*y,2,1),repmat(z,1,numel(x)),FaceColor=[0.84 0.52 0.43],FaceAlpha=0.12,EdgeColor="none"); % Preserve the irregular shape.
 end % Finish the tissue outlines.
 for sec=sections' % Select the two stations inside the cropped view.
     rows=sites.section==sec; if sites.z_m(find(rows,1))*1e3<min(z) || sites.z_m(find(rows,1))*1e3>max(z),continue;end % Exclude contacts outside this region.
@@ -58,8 +58,8 @@ title(ax,'AS2 · transverse and longitudinal sampling planes · geometry only');
 exportgraphics(fig,fullfile(folder,'as2_sampling_planes.png'),Resolution=160);close(fig); % Publish the two physical cuts.
 fig=figure(Visible="off",Theme="light",Color="white",Position=[60 60 760 660]); ax=axes(fig);hold(ax,'on'); % Draw the probe locations of the 3D field and axial-profile figure.
 drawPersonalStation(g); % Match the section that will be sampled by the volume solver.
-for k=1:size(g.f,1) % Show one centreline probe per fascicle.
-    point=g.f(k,1:2)*1e3; plot(ax,point(1),point(2),'k+');text(ax,point(1),point(2)+0.075,"F"+k,HorizontalAlignment="center"); % Identify the axial sampling line by its transverse position.
+for k=1:numel(g.polys) % Show one centreline probe per fascicle (at its centroid).
+    point=mean(g.polys{k},1)*1e3; plot(ax,point(1),point(2),'k+');text(ax,point(1),point(2)+0.075,"F"+k,HorizontalAlignment="center"); % Identify the axial sampling line by its transverse position.
 end % Finish all probe locations.
 fp=contactFootprints(g.sites); % Select the six pads belonging to this sampling plane.
 for k=1:numel(fp) % Preserve all six possible source contact locations.

@@ -1,4 +1,5 @@
-function p = quicklook3DParams() % Collect the editable inputs for the 3D geometry preview.
+function p = quicklook3DParams(opts) % Collect the editable inputs for the 3D geometry preview. opts (optional): patientFile, virtualSeed, functionScenario, functionSeed.
+if nargin<1, opts = struct(); end % Defaults: virtual patient 1.
 %% 1. Provisional nerve section
 p = pw6_2d_params(); % Reuse the group settings and tutor's contact file.
 p.domain.length_m = 60e-3; % Show the full 6 cm segment discussed with the tutor.
@@ -18,7 +19,8 @@ p.geometry.layoutTemplate=[ ... % Synthetic reference: normalized centres and re
     -0.3162605864 0.7383269006 0.1700136156; ... % F8, simulated position.
     0.1375707486 0.5124654774 1.1170499756; ... % F9, simulated position.
     -0.6142282775 0.6225495706 0.0750148700]; % F10, simulated position.
-p.geometry.fascicles_m=midArmLayout(p); % Match the 5.01 mm2 total and 1.49 mm2 largest fascicle.
+p.geometry.fascicles_m=midArmLayout(p); % Match the 5.01 mm2 total and 1.49 mm2 largest fascicle (circular equivalents).
+p.geometry.mode="insertion"; % "insertion": random irregular fascicles and random lead insertions; "legacy": circular fascicles and the approved routes.
 %% 2. Cuff and strip geometry
 p.mechanics.mu_Pa=12.9e3; % Main et al. (2011), Table 1, whole median nerve at the wrist.
 p.mechanics.alpha=6.5; % First-order Ogden exponent with the published mu/alpha^2 convention.
@@ -35,7 +37,7 @@ p.electrode.initialBow_m = 0.045e-3; % Provisional bound on the unloaded strip i
 p.electrode.appliedInsertionForce_N = NaN; % Supply a measured insertion load to enable the conditional rupture scenario.
 p.electrode.calibratedPunctureForce_N = NaN; % Supply a device-specific normal puncture force when measured.
 p.electrode.routeSeed = 20261120; % Editable seed for provisional independent insertion trajectories.
-p.electrode.tipOverhang_m = 0.05e-3; % Provisional distance beyond the distal pad edge along the insertion axis.
+p.electrode.tipOverhang_m = 0.05e-3; % Provisional distance beyond the distal pad edge along the insertion axis (legacy mode only).
 %% 3. Local mesh controls
 p.meshPreview.hMax_m = 0.18e-3; % Set the first tetrahedral target size for a single contact slab.
 p.meshPreview.hMin_m = 0.025e-3; % Resolve the local contact without implying a convergence study.
@@ -45,4 +47,15 @@ p.electrode.stripThickness_m = 10e-6; % Assume a thin flexible substrate pending
 p.electrode.stripYoungModulus_Pa = 2.5e9; % Use published photosensitive-polyimide modulus as a material proxy.
 p.electrode.unsupportedLength_m = 1e-3; % Assume one millimetre can bend near a fascicle contact.
 p.electrode.perineuriumPunctureForce_N = 40e-3; % Use the measured rabbit perineurium probe force as a provisional comparison.
+%% 5. Patient: virtual V001 (default) or a specific patient added as a JSON file (see docs/patient_data.md)
+p.patient = struct('name',"",'file',"",'virtualSeed',1,'functionScenario',"none",'functionSeed',1); % Default: reference virtual patient V001 WITHOUT function assignment ("none"): the functions of the fascicles are not known. Hypotheses: "random", "forearmRule", "mrAIN". name = file in data/patients/personal; file = any JSON path.
+for name = string(fieldnames(opts))', if name=="patientFile", p.patient.file = string(opts.patientFile); else, p.patient.(name) = opts.(name); end, end % Overrides.
+p.geometry.patient = []; p.geometry.scenario = [];
+if p.geometry.mode=="insertion"
+    p.geometry.patient = buildPatient(p); % Section, fascicle outlines, functions and motor patches of the patient used in this run.
+    if ~(p.geometry.patient.source=="virtual" && p.geometry.patient.seed==1) % Legacy circular representation (used by some older helpers) follows the patient.
+        o = p.geometry.patient.fascicles; p.geometry.fascicles_m = cell2mat(arrayfun(@(f)[mean(f.outline,1),sqrt(f.area_m2/pi)*[1 1],0],o(:),'UniformOutput',false));
+    end
+    p.geometry.scenario = insertionScenario(p); % One random lead insertion per station on this patient, shared by figures, mesh and viewer.
+end
 end % Return geometry and electrode settings in SI units.

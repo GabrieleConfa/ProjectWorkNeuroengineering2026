@@ -65,6 +65,24 @@ if isfield(p,'personalGeometry') % Export the personal schematic overlays from t
     model.shellR = toMm(hypot(shell.x_m(ringRows,:),shell.y_m(ringRows,:))); % Sample each ring including its repeated closing point.
     model.leadWidth = toMm(q.electrode.stripWidth_m); % Use the width included in the geometric clearance check.
     model.leadThickness = toMm(q.electrode.stripThickness_m); % Display the provisional substrate thickness.
+    if isfield(q.geometry,'scenario') && ~isempty(q.geometry.scenario) % Insertion mode: irregular fascicles, PDMS leads and oval PDMS sleeve.
+        sc = q.geometry.scenario; model.leadWidth = toMm(sc.leadWidth_m); model.leadThickness = toMm(sc.leadThickness_m); % PDMS lead size.
+        zl = unique([-p.domain.nerveLength_m/2; p.domain.nerveLength_m/2; reshape([sc.stations.z_m]+sc.bump_m*[-1;0;1],[],1)]); model.fascZ = toMm(zl(:)'); % Axial levels of the fascicle outlines.
+        for k=1:numel(sc.polys0), model.fascicles{k}.poly = cell(1,numel(zl)); end % One outline per level.
+        for i=1:numel(zl) % Outlines at every level (displaced near the stations).
+            P = scenarioFascicles(sc,zl(i)); for k=1:numel(P), model.fascicles{k}.poly{i} = toMm(P{k}(1:2:end,:)); end % 64 vertices per outline.
+        end
+        for k=1:numel(sc.polys0), model.fascicles{k}.x = toMm(mean(sc.polys0{k}(:,1))); model.fascicles{k}.y = toMm(mean(sc.polys0{k}(:,2))); end % Label positions: centroids of the undisturbed outlines.
+        if isfield(q.geometry,'patient') && ~isempty(q.geometry.patient) % Functions and motor patches of the patient.
+            pt = q.geometry.patient; cat = functionCatalog(); model.patientInfo = struct('id',string(pt.id),'source',string(pt.source),'functionSource',string(pt.functionSource)); % Provenance (kept apart: the viewer relies on model.patient.id, which must stay as exported by the solver).
+            model.functionCatalog = struct('id',cellstr(cat.id)','name',cellstr(cat.name)','colour',num2cell(cat.colour,2)'); % Group keys, names and colours.
+            for k=1:numel(pt.fascicles), c = pt.fascicles(k).composition; model.fascicles{k}.function = ''; model.fascicles{k}.composition = []; % Dominant function (empty = unknown).
+                if ~isempty(c), [~,i] = max(c.*(cat.kind=="motor")'); model.fascicles{k}.function = char(cat.id(i)); model.fascicles{k}.composition = round(c,3); end % Dominant motor group (sensory fibres are 87 percent of the axons and would hide it).
+                mfk = pt.fascicles(k).motorFraction; if isempty(mfk) || isnan(mfk), mfk = []; else, mfk = round(mfk,3); end, model.fascicles{k}.motorFraction = mfk; model.fascicles{k}.patches = cellfun(@(Q)toMm(Q),pt.fascicles(k).patches,'UniformOutput',false); end
+        end
+        th = linspace(0,2*pi,97)'; th(end)=[]; ray = [cos(th),sin(th)]; r0 = nerveBoundaryRadius(q,ray); pts = r0(:).*ray; t = circshift(pts,-1,1)-circshift(pts,1,1); nrm = [t(:,2),-t(:,1)]./vecnorm(t,2,2); % Oval sleeve outline.
+        model.sleeve = struct('thickness',toMm(sc.sleeveThickness_m),'outer',toMm(pts+sc.sleeveThickness_m*nrm),'inner',toMm(pts),'halfLength',toMm(p.cuff.length_m/2)); % PDMS sleeve around the nerve.
+    end
     model.insertionSegments = {}; % Export one continuous centreline at each station.
     for sec = unique(raw.section)' % Process every axial section separately.
         strip = planQuicklookStrip(q,raw(raw.section==sec & raw.type=="intraneural",:),cuff(cuff.section==sec,:),"deflect"); % Recreate the routed contact path.

@@ -11,6 +11,7 @@ for j=1:height(cuff) % Add measured stations, pad edges and smooth recovery shou
 end % Finish collecting matching transverse profiles.
 near=any(abs(atan2(sin(angles-corners'),cos(angles-corners')))<0.012,2); % Avoid sliver edges next to an exact pad corner.
 angles=uniquetol(sort([angles(~near);corners]),1e-10); rays=[cos(angles) sin(angles)]; % Reuse the same ordered vertex directions on all sections.
+sc=[]; if isfield(q.geometry,'scenario') && ~isempty(q.geometry.scenario), sc=q.geometry.scenario; end % Random fascicles, PDMS leads and sleeve (insertion mode).
 z=uniquetol(sort(z),1e-12); radii=cuffDeformedRadius(q,cuff,z,rays); % Compute the contacted outline before volume meshing.
 xy=nerveBoundaryRadius(q,rays).*rays; % Retain the undeformed outer scale for mesh sizing.
 cfg.outline=xy*1000; cfg.sectionZ=z*1000; cfg.rays=rays; cfg.radii=radii*1000; % Share ordered station geometry with the CAD kernel.
@@ -18,6 +19,26 @@ cfg.domain=1000*[p.domain.nerveLength_m,p.cuff.length_m,R*p.domain.outerRadiusFa
 cfg.fascicles=[1000*[F.x_m F.y_m F.a_m F.b_m] F.angle_deg]; % Preserve each oriented fascicle.
 cfg.pads=[sites.id sites.centre_m*1000 1000*[sites.thickness_m sites.sideXY_m sites.sideZ_m] sites.phi_deg]; % Use the real centre and orientation of each box.
 cfg.sizes=1000*[m.hContact_m m.hEndo_m m.hNerve_m m.hCoarse_m m.hMax_m m.fineHalfLength_m]; % Refine tissue around the active contacts.
+if isfield(m,'hEdge_m') && m.hEdge_m>0, cfg.edgeSize=1000*m.hEdge_m; end
+if isfield(m,'hEdgePads'), cfg.edgePads=m.hEdgePads(:)'; end % Optional list of pad IDs to refine (default: all pads).
+if ~isempty(sc) % Export irregular fascicles, PDMS lead bodies and the oval sleeve for Gmsh (millimetres).
+    L=p.domain.nerveLength_m; nF=numel(sc.polys0); cfg.fascZ=cell(1,nF); cfg.fascXY=cell(1,nF); % Per fascicle: axial levels and one closed polygon at each level.
+    for k=1:nF % An undisturbed fascicle is a straight prism (two end levels); a displaced one needs its fade-out levels at each station.
+        zl=[-L/2;L/2]; for s=sc.stations, if any(s.shift(k,:)~=0), zl=[zl;s.z_m+sc.bump_m*[-1;0;1]]; end, end % Levels where this fascicle moves.
+        zl=uniquetol(sort(zl),1e-12); cfg.fascZ{k}=1000*zl(:)'; cfg.fascXY{k}=cell(1,numel(zl)); % Axial levels of fascicle k.
+        for i=1:numel(zl) % Outline at every level.
+            P=scenarioFascicles(sc,zl(i)); idx=round(linspace(1,size(P{k},1)+1,49)); idx(end)=[]; cfg.fascXY{k}{i}=1000*P{k}(idx,:); % 48 vertices per fascicle in the mesh.
+        end
+    end
+    cfg.leads=cell(1,numel(sc.stations)); % PDMS body of each lead: the buffered centreline, extruded over its axial thickness.
+    for i=1:numel(sc.stations)
+        pb=polybuffer(sc.stations(i).path,'lines',sc.leadWidth_m/2,'JointType','miter'); pb=intersect(pb,polyshape(sc.nerve)); rg=regions(pb); [~,big]=max(arrayfun(@area,rg)); xy=rg(big).Vertices; xy=xy(all(isfinite(xy),2),:); % Band of the lead clipped flush with the nerve wall: it ends against the wrapped device, not beyond it.
+        cfg.leads{i}=struct('z',1000*sc.stations(i).z_m,'thickness',1000*sc.leadThickness_m,'xy',1000*xy); % Band outline and axial extent.
+    end
+    th=linspace(0,2*pi,97)'; th(end)=[]; ray=[cos(th),sin(th)]; r0=nerveBoundaryRadius(q,ray); pts=r0(:).*ray; % Native oval outline (96 vertices).
+    t=circshift(pts,-1,1)-circshift(pts,1,1); nrm=[t(:,2),-t(:,1)]./vecnorm(t,2,2); % Outward normal at every vertex.
+    cfg.sleeveXY={1000*(pts+sc.sleeveThickness_m*nrm),1000*(pts+sc.sleeveThickness_m*nrm)}; cfg.sleeveZ=1000*p.cuff.length_m/2*[-1 1]; % Oval PDMS sleeve: a straight prism between the cuff ends (the 4 to 9 um pad indentations are negligible against its thickness).
+end
 %% 2. Generate the conforming tetrahedra and label every cell
 folder=tempname; mkdir(folder); cleanup=onCleanup(@()rmdir(folder,'s')); % Isolate concurrent runs and remove intermediates.
 input=fullfile(folder,'device.json'); output=fullfile(folder,'mesh.mat'); % Keep both files local to this run.

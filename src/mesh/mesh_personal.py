@@ -1,10 +1,15 @@
 """Conforming linear tetrahedra for the finite rigid contacts. CAD units are mm."""
 import json  # Read the MATLAB device description.
 import math  # Rotate CAD coordinates in radians.
+import os  # Read the optional diagnostic switch.
 import sys  # Read input and output paths from MATLAB.
 import gmsh  # Use the OpenCASCADE and mesh APIs.
 import numpy as np  # Store nodal coordinates and tetrahedral connectivity.
 from scipy.io import savemat  # Return the mesh as a MATLAB data file.
+
+def poly_wire(occ, xy, z):  # Closed polygon wire at height z.
+    points = [occ.addPoint(x, y, z) for x, y in xy]  # Vertices.
+    return occ.addWire([occ.addLine(points[i], points[(i+1)%len(points)]) for i in range(len(points))])  # Closed wire.
 
 def build(cfg):  # Build and label the shared contact mesh.
     # 1. Nerve, fascicles, muscle and rigid pad solids
@@ -25,13 +30,24 @@ def build(cfg):  # Build and label the shared contact mesh.
         wires.append(occ.addWire(edges))  # Preserve consistent winding across stations.
     loft = occ.addThruSections(wires, makeSolid=True, makeRuled=True)  # Extrude matching profiles and linearly connect differing sections before meshing.
     bodies = [(next(tag for dim,tag in loft if dim==3), (3,0,0))]  # Assign the connected solid to epineurium.
-    ring = occ.addCylinder(0, 0, -cuff/2, 0, 0, cuff, radius)  # Create the surrounding muscle blank.
-    bore = occ.addCylinder(0, 0, -cuff/2, 0, 0, cuff, wall)  # Represent the insulating cuff region.
-    annulus, _ = occ.cut([(3, ring)], [(3, bore)])  # Remove that region from the muscle.
-    bodies.append((annulus[0][1], (4, 0, 0)))  # Keep the conducting annulus.
-    for start in [z0, cuff/2]:  # Build the two muscle end regions.
-        bodies.append((occ.addCylinder(0, 0, start, 0, 0, (length-cuff)/2, radius), (4, 0, 0)))  # Label muscle beyond the cuff.
-    for k, (x, y, a, b, angle) in enumerate(cfg["fascicles"], 1):  # Create one labelled fascicle per input row.
+    if "sleeveXY" in cfg:  # Insertion mode: PDMS sleeve and full muscle cylinder.
+        bodies.append((occ.addCylinder(0, 0, z0, 0, 0, length, radius), (4, 0, 0)))  # Muscle around the whole domain (the nerve and sleeve take priority).
+        sleeve = [poly_wire(occ, xy, zz*axial_scale) for xy, zz in zip(cfg["sleeveXY"], cfg["sleeveZ"])]  # Offset contours along the cuff length.
+        sl = occ.addThruSections(sleeve, makeSolid=True, makeRuled=True)  # Oval PDMS sleeve solid (it contains the nerve; the nerve wins the overlap).
+        bodies.append((next(tag for dim, tag in sl if dim == 3), (7, 0, 0)))  # Label as sleeve.
+    else:  # Legacy: circular insulating void around the nerve.
+        ring = occ.addCylinder(0, 0, -cuff/2, 0, 0, cuff, radius)  # Create the surrounding muscle blank.
+        bore = occ.addCylinder(0, 0, -cuff/2, 0, 0, cuff, wall)  # Represent the insulating cuff region.
+        annulus, _ = occ.cut([(3, ring)], [(3, bore)])  # Remove that region from the muscle.
+        bodies.append((annulus[0][1], (4, 0, 0)))  # Keep the conducting annulus.
+        for start in [z0, cuff/2]:  # Build the two muscle end regions.
+            bodies.append((occ.addCylinder(0, 0, start, 0, 0, (length-cuff)/2, radius), (4, 0, 0)))  # Label muscle beyond the cuff.
+    if "fascXY" in cfg:  # Irregular fascicles: ruled loft through their outlines at every axial level.
+        for k, (sections, levels) in enumerate(zip(cfg["fascXY"], cfg["fascZ"]), 1):
+            wires = [poly_wire(occ, xy, zz*axial_scale) for xy, zz in zip(sections, levels)]  # Outline at each level.
+            fl = occ.addThruSections(wires, makeSolid=True, makeRuled=True)  # Fascicle solid.
+            bodies.append((next(tag for dim, tag in fl if dim == 3), (1, k, 0)))  # Endoneurium and fascicle label.
+    for k, (x, y, a, b, angle) in enumerate([] if "fascXY" in cfg else cfg["fascicles"], 1):  # Legacy ellipse fascicles.
         # Four exact ellipse arcs keep each curved patch shorter than a semicircle.
         points = []  # Collect the four rotated ellipse vertices.
         for theta in [0, math.pi/2, math.pi, 3*math.pi/2]:  # Visit each end of the two principal axes.
@@ -42,6 +58,11 @@ def build(cfg):  # Build and label the shared contact mesh.
         major = points[0 if a >= b else 1]  # Identify the major-axis endpoint for OpenCASCADE.
         arcs = [occ.addEllipseArc(point,center,major,points[(i+1)%4]) for i,point in enumerate(points)]  # Join the four exact quarter arcs.
         bodies.append((prism(occ.addPlaneSurface([occ.addWire(arcs)])), (1, k, 0)))  # Assign the endoneurium and fascicle labels.
+    for lead in cfg.get("leads", []):  # PDMS body of each lead: polygon band extruded over its axial thickness.
+        w = poly_wire(occ, lead["xy"], (lead["z"]-lead["thickness"]/2)*axial_scale)  # Band outline at the lower face.
+        face = occ.addPlaneSurface([w])  # Planar face.
+        ext = occ.extrude([(2, face)], 0, 0, lead["thickness"]*axial_scale)  # Extrude to the upper face.
+        bodies.append((next(tag for dim, tag in ext if dim == 3), (6, 0, 0)))  # PDMS lead body.
     for site, x, y, z, thick, width, height, phi in cfg["pads"]:  # Build each finite electrode in its own frame.
         z *= axial_scale  # Scale its axial centre coordinate.
         height *= axial_scale  # Scale its axial size consistently.
@@ -54,7 +75,7 @@ def build(cfg):  # Build and label the shared contact mesh.
     inputs = [(3, tag) for tag, _ in bodies]  # List the solids participating in the same mesh.
     _, pieces = occ.fragment(inputs[:1], inputs[1:])  # Split solids at material interfaces.
     occ.synchronize()  # Publish the shared boundaries to the mesher.
-    priority = {4: 0, 3: 1, 1: 2, 5: 3}  # Give the inner material ownership of intersecting cells.
+    priority = {4: 0, 7: 1, 3: 2, 1: 3, 6: 4, 5: 5}  # Give the inner material ownership of intersecting cells.
     roles = {}  # Map fragmented cells back to physical materials.
     for (_, role), fragments in zip(bodies, pieces):  # Read each original solid and its fragments.
         for dim, tag in fragments:  # Visit each fragment of this solid.
@@ -76,11 +97,31 @@ def build(cfg):  # Build and label the shared contact mesh.
     radial = field.add("MathEval")  # Add the independent tissue-size control.
     nerve_r = max(math.hypot(x,y) for x,y in cfg["outline"])  # Measure the largest native radius.
     field.setString(radial, "F", f"Min({maximum}, {endo}+{nerve-endo}*(Min(1,Sqrt(x*x+y*y)/{nerve_r}))+0.4*Max(0,Sqrt(x*x+y*y)-{nerve_r})+Min({coarse-nerve},0.3*Max(0,Abs(z)/{axial_scale}-{active})))")  # Grade the element size radially and along the nerve.
+    fields = [threshold, radial]  # Size controls that are always active.
+    edge_size = cfg.get("edgeSize", 0)  # Optional element size on the pad edges in mm (0 = off).
+    if edge_size:  # The current concentrates on pad edges and corners, so resolve them locally.
+        wanted = set(cfg.get("edgePads", []))  # Pads whose edges are refined (empty = all pads).
+        edge_faces = set()  # Faces of the selected pads.
+        for tag, role in roles.items():  # Visit every labelled volume.
+            if role[0] == 5 and (not wanted or int(role[2]) in wanted):  # A selected electrode.
+                edge_faces.update(t for d, t in gmsh.model.getBoundary([(3, tag)], oriented=False))  # Its faces.
+        curves = sorted({t for d, t in gmsh.model.getBoundary([(2, s) for s in edge_faces], combined=False, oriented=False)})  # Every edge of the selected pads.
+        edge_distance = field.add("Distance")  # Measure distance from the pad edges.
+        field.setNumbers(edge_distance, "CurvesList", curves)  # Use the union of the pad edges.
+        field.setNumber(edge_distance, "Sampling", 20)  # Sample each edge densely enough for small elements.
+        edge_threshold = field.add("Threshold")  # Grow from the edge size to the coarse size over 0.15 mm.
+        field.setNumber(edge_threshold, "InField", edge_distance)
+        for name, val in dict(SizeMin=edge_size, SizeMax=maximum, DistMin=edge_size, DistMax=0.15).items():  # SizeMax applies everywhere beyond DistMax, so it must be the coarsest size.
+            field.setNumber(edge_threshold, name, val)
+        fields.append(edge_threshold)  # Add it to the combined size field.
+        if os.environ.get("NERVE_DEBUG_EDGES"):  # Diagnostic: report the selected edge length and stop before meshing.
+            total = sum(occ.getMass(1, c) for c in curves); print(f"EDGE CURVES {len(curves)} total length {total:.3f} mm", flush=True); sys.exit(0)
     minimum = field.add("Min")  # Choose the finer local size everywhere.
-    field.setNumbers(minimum, "FieldsList", [threshold, radial])  # Combine electrode and tissue refinement.
+    field.setNumbers(minimum, "FieldsList", fields)  # Combine electrode, edge and tissue refinement.
     field.setAsBackgroundMesh(minimum)  # Activate the combined size field.
     for option, number in {"General.NumThreads":4,"Mesh.Algorithm3D":1,"Mesh.OptimizeThreshold":0.1,"Mesh.MeshSizeExtendFromBoundary":0,"Mesh.MeshSizeFromPoints":0,"Mesh.MeshSizeFromCurvature":0}.items():  # Set the tetrahedral algorithm and size controls.
         gmsh.option.setNumber(option, number)  # Apply the current meshing option.
+    import time; print('CAD done', flush=True)  # Progress marker.
     gmsh.model.mesh.generate(3)  # Tetrahedralize all conforming cells together.
 
     # 4. Physical coordinates, connectivity and signed-volume checks

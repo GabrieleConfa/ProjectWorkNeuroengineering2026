@@ -106,6 +106,7 @@ p.electrode.contactSigma_Spm = 1e3;             % [assumed] numerical stand-in f
 % net current).
 p.electrode.idleContacts  = "insulating";       % [group, as 2D]
 p.electrode.insulatorSigma_Spm = 1e-7;          % [assumed] numerical stand-in for an insulator
+p.electrode.pdmsSigma_Spm = 1e-7;            % [assumed] PDMS of the lead bodies and of the sleeve: unfilled PDMS is an insulator (about 1e-12 S/m); 1e-7 is a numerical stand-in. Set a larger value to test a conductive (filled) PDMS.
 
 %% Which contacts are solved (one 3D solve per contact) --------------------------------------------
 p.solve3d.sections = -4;                        % sections whose contacts are solved; [] = all 48
@@ -122,6 +123,7 @@ p.mesh3d.hCoarse_m  = 500 * um;                 % all nerve faces outside the fi
 p.mesh3d.hMax_m     = 1.2 * mm;                 % muscle, largest element
 p.mesh3d.hMin_m     = 5 * um;
 p.mesh3d.hGrad      = 1.4;
+p.mesh3d.hEdge_m    = 5 * um;                   % element size on all pad edges; R converges below about 5 um (scripts/run_edge_refinement_test.m); 0 = off
 p.solve3d.solver    = "direct";                 % "direct" (backslash) | "pcg" (ichol preconditioner)
 p.solve3d.pcgTol    = 1e-9;
 

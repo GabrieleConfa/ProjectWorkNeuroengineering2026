@@ -24,11 +24,9 @@ hold(ax,'on'); % Keep the tissue outlines and distance segment on the same axes.
 fill(ax,1e3*model.nerve.x_m(iz,:),1e3*model.nerve.y_m(iz,:),[0.97 0.91 0.77]); % Draw the epineurial region in atlas colours.
 theta = linspace(0,2*pi,2049)'; % Sample the outer sheath at sub-degree intervals.
 gap = inf; % Retain the minimum distance between this finite pad and any outer perineurium.
-for j=1:size(p.geometry.fascicles_m,1) % Compare every fascicle at this station.
-    f=p.geometry.fascicles_m(j,:); % Read the centre, semiaxes and rotation.
-    rot=[cosd(f(5)) sind(f(5)); -sind(f(5)) cosd(f(5))]; % Rotate the elliptical section into anatomical coordinates.
-    outer=([cos(theta) sin(theta)].*(f(3:4)+p.geometry.tPeri_m))*rot+f(1:2); % Sample the outside of the perineurium.
-    inner=([cos(theta) sin(theta)].*f(3:4))*rot+f(1:2); % Sample the underlying endoneurial region.
+fpolys=stationFascicles(p,site.section); % Fascicle outlines at this station (random shapes after the insertion).
+for j=1:numel(fpolys) % Compare every fascicle at this station.
+    inner=fpolys{j}; outerPoly=polybuffer(polyshape(inner),p.geometry.tPeri_m); outer=outerPoly.Vertices; % Endoneurial outline and outer perineurial boundary.
     fill(ax,1e3*outer(:,1),1e3*outer(:,2),[0.65 0.40 0.35],EdgeColor="none"); % Show the outer sheath using the atlas colour.
     fill(ax,1e3*inner(:,1),1e3*inner(:,2),[0.96 0.75 0.68],EdgeColor="none"); % Show the endoneurial interior.
     along=max(-site.sideXY_m/2,min(site.sideXY_m/2,outer*t'-frame.offset)); % Project each sheath sample onto the finite pad.
@@ -43,7 +41,7 @@ plot(ax,1e3*edge(:,1),1e3*edge(:,2),Color=[0.57 0.14 0.83],LineWidth=5); % Ident
 plot(ax,1e3*segment(:,1),1e3*segment(:,2),'k--',LineWidth=1.5); % Mark the geometric gap across the epineurium.
 [~,~,~,~,frameB]=cuffContactPlane(p,siteB); edgeB=frameB.centre+[-1;1]*siteB.sideXY_m/2*frameB.t; % Locate the second pad shown in the lower-right cut.
 plot(ax,1e3*edgeB(:,1),1e3*edgeB(:,2),Color=[0.85 0.40 0.05],LineWidth=5); text(ax,0.80e3*frameB.centre(1),0.80e3*frameB.centre(2),sprintf('AS%d',siteB.id),Color=[0.85 0.40 0.05],HorizontalAlignment="center"); % Mark where the second cut is taken.
-text(ax,1e3*p.geometry.fascicles_m(closest,1),1e3*p.geometry.fascicles_m(closest,2),"F"+closest,HorizontalAlignment="center"); % Identify the nearest fascicle.
+text(ax,1e3*mean(fpolys{closest}(:,1)),1e3*mean(fpolys{closest}(:,2)),"F"+closest,HorizontalAlignment="center"); % Identify the nearest fascicle.
 axis(ax,'equal'); xlabel(ax,'x [mm]'); ylabel(ax,'y [mm]'); % Keep the anatomical proportions in millimetres.
 title(ax,sprintf('Pad AS%d to F%d sheath | %.3f mm',site.id,closest,1e3*gap)); % Report the distance in this provisional anatomy.
 %% 4. Render the finite pad and the underlying epineurial surface in three dimensions

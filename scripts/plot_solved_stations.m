@@ -26,10 +26,7 @@ for sec=unique(raw.section)' % Draw all eight axial levels independently.
         h.AlphaData=isfinite(v'); axis(ax,'xy','equal','tight'); hold(ax,'on'); % Hide exterior and preserve proportions.
         cb=colorbar(ax); cb.Label.String='mV'; % Label the per-panel potential scale.
         plot(ax,outline(:,1)*1e3,outline(:,2)*1e3,'Color',[0.1 0.3 0.85]); % Show the finite cuff fit.
-        for f=1:height(o.patient.fascicles) % Draw the thin perineurial interfaces.
-            [fx,fy]=fascicleOutline(o.patient.fascicles,f,angles); % Read the real rotated endoneurial outline.
-            plot(ax,fx*1e3,fy*1e3,'Color',[0.45 0.45 0.45]); % Mark this interface on the field.
-        end % Finish the tissue layer outlines.
+        for P=stationFascicles(q,sec)', plot(ax,[P{1}(:,1);P{1}(1,1)]*1e3,[P{1}(:,2);P{1}(1,2)]*1e3,'Color',[0.45 0.45 0.45]); end % Fascicle outlines of this station (displaced by its lead).
         plot(ax,strip.path_m(:,1)*1e3,strip.path_m(:,2)*1e3,'Color',[0.12 0.36 0.94],'LineWidth',1.7); % Draw the single-entry carrier.
         for k=rows' % Draw the six active faces on their local supports.
             s=o.sites(k,:); centre=s.centre_m(1:2); % Read the FEM contact centre.

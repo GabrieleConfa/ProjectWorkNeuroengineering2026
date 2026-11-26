@@ -192,10 +192,12 @@ const urlParams = new URLSearchParams(location.search);
 const PATIENT = urlParams.get('patient') || 'Cuff60Preview';
 let DATA_DIR = urlParams.get('data') || `../results/viewer/${PATIENT}/`;
 
+const BUILD = Date.now(); // Cache-buster: data scripts are always reloaded, so a stale copy cannot be mixed with new pages.
+function isPersonal() { return !!(M && M.shellR); } // The personal device (fitted shell exported by MATLAB): independent of the patient name.
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
-    s.src = src;
+    s.src = src + (src.includes('?') ? '&' : '?') + 'v=' + BUILD;
     s.onload = resolve;
     s.onerror = () => reject(new Error(`cannot load ${src}`));
     document.head.appendChild(s);
@@ -327,7 +329,7 @@ let fieldNote = ''; // Reason why stimulation is unavailable, shown on the disab
     $('btnStim').disabled = true; // A geometric preview cannot supply a field.
     $('btnStim').title = fieldNote || 'Reload after the matching FEM fields have been computed.'; if (fieldNote) { console.warn(fieldNote); document.getElementById('subtitle').textContent = fieldNote; } // Explain when the control becomes available.
   }
-  if(M.patient.id==='Cuff60'){
+  if(isPersonal()){
     const links=document.createElement('div'); // Make the local pad indentation inspectable at micrometre scale.
     for(const [label,file] of [['Eight sections',M.solvedIds.length?'all_stations_deflect.png':'figura2_equilibrio.png'],['Cuff contact detail','local_cuff_deflect.png']]){
       const a=document.createElement('a'); a.textContent=label; a.href='../results/3d_preview/'+file; // Link the matching MATLAB figure.
@@ -481,13 +483,14 @@ function inspectCuff(site) { // Zoom onto the actual inner face while preserving
   $('cuffZoom').value=String(site.id); updateCut(); // Apply clipping to the full contact footprint.
 }
 
+function flushDamping() { controls.enableDamping = false; controls.update(); controls.enableDamping = true; } // Stop the residual rotation of the mouse inertia, so that a programmatic view is not dragged away.
 function resetView() {
-  clearCuffInspection(); // Return to the uncluttered anatomy view.
+  flushDamping(); clearCuffInspection(); // Return to the uncluttered anatomy view.
   focusTarget = null;
-  if(model && M.patient.id==='Cuff60' && state.cut==='transverse' && !state.fullLength){
+  if(model && isPersonal() && state.cut==='transverse' && !state.fullLength){
     const centre=model.localToWorld(new THREE.Vector3(0,0,state.cutZ)); // Centre the camera on the selected physical insertion.
     camera.position.copy(model.localToWorld(new THREE.Vector3(0,0,state.cutZ+7))); // Begin with the front view from the drawing.
-    controls.target.copy(centre); controls.update(); return; // Keep mouse rotation and zoom available.
+    controls.target.copy(centre); flushDamping(); return; // Keep mouse rotation and zoom available.
   }
   const site = M && state.siteId != null ? M.sites.find((s) => s.id === state.siteId) : null;
   const close = site && !state.fullLength;
@@ -496,7 +499,7 @@ function resetView() {
   const c = close ? model.localToWorld(new THREE.Vector3(0, 0, site.centre[2])) : new THREE.Vector3();
   camera.position.set(c.x - 0.45 * d, c.y + 0.38 * d, c.z + 0.85 * d);
   controls.target.copy(c);
-  controls.update();
+  flushDamping();
 }
 
 /* ======================================================================================
@@ -547,6 +550,30 @@ function tube(r, x, y, z0, z1, segments = 128) {
   return g;
 }
 
+function polyAtZ(f, z) { // Outline of an irregular fascicle at axial position z: linear interpolation between the exported levels.
+  const Z = M.fascZ; let i = 0; while (i < Z.length-2 && z > Z[i+1]) i++; // Level interval containing z.
+  const t = Math.min(1, Math.max(0, (z - Z[i]) / (Z[i+1] - Z[i]))); // Position inside the interval.
+  return f.poly[i].map((p,k) => [p[0] + (f.poly[i+1][k][0]-p[0])*t, p[1] + (f.poly[i+1][k][1]-p[1])*t]); // Same vertices move with the displacement.
+}
+function polyShell(f) { // Loft of an irregular fascicle through all exported levels.
+  const xyz = [], tri = [], n = f.poly[0].length; // Vertices per outline.
+  f.poly.forEach((outline, j) => outline.forEach((p, i) => {
+    xyz.push(p[0], p[1], M.fascZ[j]); // Vertex at this level.
+    if (j === 0) return; // The first level has no previous strip.
+    const a = (j-1)*n+i, b = (j-1)*n+(i+1)%n; tri.push(a, b, b+n, a, b+n, a+n); // Join consecutive levels.
+  }));
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(xyz,3)); g.setIndex(tri); g.computeVertexNormals(); return g;
+}
+function ovalPrism(pts, z0, z1) { // Straight oval prism (outer surface of the PDMS sleeve).
+  const n = pts.length, xyz = [], tri = [];
+  pts.forEach((p,i) => { xyz.push(p[0],p[1],z0, p[0],p[1],z1); const a = 2*i, b = 2*((i+1)%n); tri.push(a,b,b+1,a,b+1,a+1); });
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(xyz,3)); g.setIndex(tri); g.computeVertexNormals(); return g;
+}
+function ovalRing(inner, outer, z) { // Annulus between two oval outlines (end of the sleeve).
+  const n = inner.length, xyz = [], tri = [];
+  inner.forEach((p,i) => { const q = outer[i]; xyz.push(p[0],p[1],z, q[0],q[1],z); const a = 2*i, b = 2*((i+1)%n); tri.push(a,a+1,b+1,a,b+1,b); });
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(xyz,3)); g.setIndex(tri); return g;
+}
 function personalShell(rings, levels) { // Build the smooth contact-fit surface from the exported MATLAB rings.
   const xyz = [], triangles = []; // Collect vertices and face indices.
   const count = rings[0].length - 1; // Omit the duplicated closing point in each ring.
@@ -579,10 +606,14 @@ function buildModel() {
   }
   M.fascicles.forEach((f, i) => {
     f.colour = FASC_COLOURS[i % FASC_COLOURS.length];
-    const outline = tube(1,0,0,-L/2,L/2,96); // Start from a centred unit circle.
-    outline.scale(...(f.axes || [f.r,f.r]),1); // Apply the two transverse semiaxes.
-    outline.rotateZ((f.angle || 0)*Math.PI/180); // Rotate the supplied fascicle outline.
-    outline.translate(f.x,f.y,0); // Position its centre inside the nerve.
+    let outline;
+    if (f.poly) outline = polyShell(f); // Irregular fascicle displaced near the stations by the lead insertion.
+    else {
+      outline = tube(1,0,0,-L/2,L/2,96); // Start from a centred unit circle.
+      outline.scale(...(f.axes || [f.r,f.r]),1); // Apply the two transverse semiaxes.
+      outline.rotateZ((f.angle || 0)*Math.PI/180); // Rotate the supplied fascicle outline.
+      outline.translate(f.x,f.y,0); // Position its centre inside the nerve.
+    }
     const m = new THREE.Mesh(outline, glassMaterial(f.colour, 0.06, 0.75));
     m.renderOrder = 1;
     model.add(m);
@@ -593,7 +624,7 @@ function buildModel() {
   const cuffMat = glassMaterial(M.shellR ? 0x245fe0 : CUFF_COLOUR, 0.02, 0.3);
   // The personal FEM represents the sleeve as an insulating void. Draw its outer envelope.
   // A second circular skin at native R would cut through the fitted metal and coincide with the nerve.
-  const cuffSurfaces=[tube(Rc,0,0,-Lc/2,Lc/2)];
+  const cuffSurfaces=M.sleeve ? [ovalPrism(M.sleeve.outer,-Lc/2,Lc/2)] : [tube(Rc,0,0,-Lc/2,Lc/2)]; // Oval PDMS sleeve in insertion mode.
   if(!M.shellR) cuffSurfaces.push(tube(R+0.002,0,0,-Lc/2,Lc/2));
   cuffSurfaces.forEach((g) => {
     const m = new THREE.Mesh(g, cuffMat);
@@ -602,8 +633,8 @@ function buildModel() {
     shellMeshes.cuff.push(m);
   });
   [-1, 1].forEach((s) => {
-    const g = new THREE.RingGeometry(R, Rc, 128, 1);
-    g.translate(0, 0, s * Lc / 2);
+    const g = M.sleeve ? ovalRing(M.sleeve.inner, M.sleeve.outer, s * Lc / 2) : new THREE.RingGeometry(R, Rc, 128, 1); // Annulus at the sleeve end.
+    if (!M.sleeve) g.translate(0, 0, s * Lc / 2);
     const m = new THREE.Mesh(g, cuffMat);
     m.renderOrder = 1;
     model.add(m);
@@ -688,14 +719,14 @@ function buildRingsAndLabels() {
     nr.userData.kind = 'nerve';
     ringGroup.add(nr);
     M.fascicles.forEach((f) => {
-      const fr = circle(f.r, f.x, f.y, z, f.colour, 0.9,f.axes,f.angle);
+      const fr = f.poly ? new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(polyAtZ(f,z).map(p=>new THREE.Vector3(p[0],p[1],z))), new THREE.LineBasicMaterial({ color: f.colour, transparent: true, opacity: 0.9 })) : circle(f.r, f.x, f.y, z, f.colour, 0.9,f.axes,f.angle);
       fr.userData.kind = 'fascicles';
       ringGroup.add(fr);
     });
   });
   // fascicle labels at the right end, station labels above the nerve
   M.fascicles.forEach((f, i) => {
-    const sp = textSprite(`F${i + 1}`, f.colour, 0.42);
+    const sp = textSprite(`F${i + 1}${f.function ? ' ' + f.function : ''}`, f.colour, 0.42); // Label with the dominant function (when known).
     sp.position.set(f.x, f.y, zv + 0.5);
     labelGroup.add(sp);
   });
@@ -762,7 +793,7 @@ function buildVolume() {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: `
-      precision highp sampler3D;
+      precision highp sampler3D; precision highp sampler2D;
       varying vec3 vLocal;
       uniform sampler3D uData;
       uniform vec3 uBoxMin, uBoxMax, uCam;
@@ -829,6 +860,21 @@ function buildSlice() {
     ellipse.push(f ? new THREE.Vector3(...(f.axes || [f.r,f.r]),(f.angle || 0)*Math.PI/180) : new THREE.Vector3(1,1,0)); // Send each ellipse to the slice shader.
     cols.push(f ? new THREE.Color(f.colour) : new THREE.Color(0, 0, 0));
   }
+  const hasPoly = !!(M.fascicles[0] && M.fascicles[0].poly); // Irregular fascicles are drawn from their outlines.
+  const NV = hasPoly ? M.fascicles[0].poly[0].length : 64, nLev = hasPoly ? M.fascZ.length : 2, nFasc = M.fascicles.length; // Vertices per outline, levels, fascicles.
+  let polyTex = new THREE.DataTexture(new Float32Array(2*NV*2), NV, 2, THREE.RGFormat, THREE.FloatType); polyTex.needsUpdate = true; // Placeholder.
+  const levelZ = new Array(32).fill(0), bbox = []; // Axial levels and padded bounding boxes (they bound all levels).
+  for (let k = 0; k < 32; k++) bbox.push(new THREE.Vector4(1e3,1e3,-1e3,-1e3));
+  if (hasPoly) {
+    const data = new Float32Array(NV*nFasc*nLev*2); // Vertex table: one row per (fascicle, level).
+    M.fascicles.forEach((f,k) => f.poly.forEach((o,l) => o.forEach((p,v) => {
+      const i = ((k*nLev+l)*NV+v)*2; data[i] = p[0]; data[i+1] = p[1]; // Store the vertex.
+      const b = bbox[k]; b.x = Math.min(b.x,p[0]-0.1); b.y = Math.min(b.y,p[1]-0.1); b.z = Math.max(b.z,p[0]+0.1); b.w = Math.max(b.w,p[1]+0.1); // Grow the padded box.
+    })));
+    polyTex = new THREE.DataTexture(data, NV, nFasc*nLev, THREE.RGFormat, THREE.FloatType); // Float table read with texelFetch.
+    polyTex.minFilter = polyTex.magFilter = THREE.NearestFilter; polyTex.needsUpdate = true;
+    M.fascZ.forEach((z,i) => levelZ[i] = z);
+  }
   const pads = M.shellR ? M.sites.filter(s=>s.type==='cuff') : []; // Apply the local faces of the personal device.
   const padPlanes = [], padWidths = []; // Store outward normals, contact planes, z and half widths.
   for(let i=0;i<16;i++){ // The device has two external pads at eight stations.
@@ -847,6 +893,8 @@ function buildSlice() {
       uPadOffset:{value:padPlanes.map((_,i)=>pads[i] ? -pads[i].centre[0]*pads[i].n[1]+pads[i].centre[1]*pads[i].n[0] : 0)},uPadThickness:{value:padPlanes.map((_,i)=>pads[i]?.thickness || 0)},uPadPlanes:{value:padPlanes},uPadWidths:{value:padWidths},uPadCount:{value:pads.length},
       uEllipse: {value: ellipse}, uNerveAxes: {value: new THREE.Vector3(...(M.nerveAxes || [M.nerveRadius,M.nerveRadius]),(M.nerveAngle || 0)*Math.PI/180)},
       uFasc: { value: fasc }, uFascCol: { value: cols }, uNF: { value: M.fascicles.length },
+      uUsePoly: { value: hasPoly }, uPoly: { value: polyTex }, uLevelZ: { value: levelZ }, uNLev: { value: nLev }, uBBox: { value: bbox },
+      uOval: { value: !!M.sleeve }, uSleeveT: { value: M.sleeve ? M.sleeve.thickness : 0 },
       uNerveCol: { value: new THREE.Color(NERVE_COLOUR) },
     },
     vertexShader: `
@@ -872,6 +920,29 @@ function buildSlice() {
       }
       uniform vec3 uFascCol[32];
       uniform int uNF;
+      uniform bool uUsePoly, uOval; uniform sampler2D uPoly; uniform float uLevelZ[32], uSleeveT; uniform int uNLev; uniform vec4 uBBox[32];
+      #define NV ${NV}
+      int levelLo(float z, out float t) { // Interval of the exported levels that contains z.
+        int lo = 0;
+        for (int i = 0; i < 31; i++) { if (i >= uNLev-2) break; if (z > uLevelZ[i+1]) lo = i+1; }
+        t = clamp((z - uLevelZ[lo]) / max(uLevelZ[lo+1] - uLevelZ[lo], 1e-6), 0.0, 1.0);
+        return lo;
+      }
+      vec2 polyVertex(int v, int k, int lo, float t) { // Vertex v of fascicle k, interpolated between two levels.
+        return mix(texelFetch(uPoly, ivec2(v, k*uNLev+lo), 0).rg, texelFetch(uPoly, ivec2(v, k*uNLev+lo+1), 0).rg, t);
+      }
+      float polySDF(vec2 p, int k, int lo, float t) { // Signed distance to an irregular outline (negative inside), in mm.
+        float d = 1e9, s = 1.0; vec2 prev = polyVertex(NV-1, k, lo, t);
+        for (int v = 0; v < NV; v++) {
+          vec2 cur = polyVertex(v, k, lo, t), e = cur - prev, w = p - prev;
+          vec2 b = w - e * clamp(dot(w, e) / max(dot(e, e), 1e-12), 0.0, 1.0);
+          d = min(d, dot(b, b));
+          bvec3 c = bvec3(p.y >= prev.y, p.y < cur.y, e.x * w.y > e.y * w.x);
+          if (all(c) || all(not(c))) s *= -1.0;
+          prev = cur;
+        }
+        return s * sqrt(d);
+      }
       ${GLSL_CMAPS}
       float outline(float dist) {          // 1 on a ~1.5 px line where dist = 0
         float w = fwidth(dist);
@@ -896,7 +967,8 @@ function buildSlice() {
         float contour=r-radius; // Signed distance along the ray to the contacted nerve.
         if (contour > 0.0) {
           // The insulating region extends from the fitted tissue surface to the outer cuff envelope.
-          if (uShowSleeve && (uPadCount>0 || r>=uR) && r<uR+uWall && abs(p.z)<uCuffHalf) {
+          bool inSleeve = uOval ? (contour < uSleeveT) : ((uPadCount>0 || r>=uR) && r<uR+uWall); // Oval PDMS sleeve (thickness along the ray) or the legacy circular void.
+          if (uShowSleeve && inSleeve && abs(p.z)<uCuffHalf) {
             for(int k=0;k<16;k++){
               if(k>=uPadCount) break;
               vec4 pad=uPadPlanes[k];vec2 widths=uPadWidths[k];
@@ -911,11 +983,17 @@ function buildSlice() {
         vec3 col = vec3(0.07, 0.09, 0.11);     // epineurium
         float edge = outline(contour);
         vec3 edgeCol = uNerveCol;
+        float tl = 0.0; int lo = 0; if (uUsePoly) lo = levelLo(p.z, tl); // Axial interval for irregular fascicles.
         for (int i = 0; i < 32; i++) {
           if (i >= uNF) break;
-          float dd = ellipseDistance(p.xy-uFasc[i].xy,uEllipse[i]);
+          float dd;
+          if (uUsePoly) {
+            vec4 bb = uBBox[i]; // Padded bounding box: far from the fascicle the distance is bounded from below.
+            vec2 out2 = max(max(bb.xy - p.xy, p.xy - bb.zw), vec2(0.0)); float far = 0.1 + length(out2);
+            dd = (out2.x > 0.0 || out2.y > 0.0) ? far : polySDF(p.xy, i, lo, tl); // Exact distance only near the fascicle.
+          } else dd = ellipseDistance(p.xy-uFasc[i].xy,uEllipse[i]);
           if (dd < 0.0) col = uFascCol[i] * 0.32;   // endoneurium of fascicle i
-          float e = outline(dd);                     // perineurium
+          float e = abs(dd) < 0.06 ? outline(dd) : 0.0;   // perineurium (only near the outline: avoids artefacts at the bounding-box border)
           if (e > edge) { edge = e; edgeCol = uFascCol[i]; }
         }
         if (uHeat && uIntensity > 0.0) {
@@ -983,7 +1061,7 @@ function updateCut() {
     sliceMesh.geometry.dispose();
     sliceMesh.geometry = geo;
   }
-  const previewSlab=M.patient.id==='Cuff60' && !state.heatOn && state.cut==='transverse'; // Isolate one device station for geometry review.
+  const previewSlab=isPersonal() && !state.heatOn && state.cut==='transverse'; // Isolate one device station for geometry review.
   if(previewSlab){
     shellPlanes.length=0; // Keep both surfaces of the selected station visible.
     const pad=cuffProfiles && M.sites.find(s=>s.id===cuffProfiles.userData.pad); // Match the clipping slab to the finite pad and its axial shoulder.
@@ -1085,7 +1163,7 @@ function initUI() {
   $('selCmap').addEventListener('change', () => { state.cmap = $('selCmap').value; updateAll(); });
   $('cbPulse').addEventListener('change', () => { state.pulse = $('cbPulse').checked; });
 
-  document.querySelectorAll('#segCut button').forEach((b) => b.addEventListener('click', () => setCut(b.dataset.c)));
+  document.querySelectorAll('#segCut button').forEach((b) => b.addEventListener('click', () => { setCut(b.dataset.c); if (b.dataset.c === 'transverse' && isPersonal()) resetView(); })); // Transverse: face the section straight on.
   const zv = M.grid.z0 + (M.grid.nz - 1) * M.grid.dz;
   $('rZ').min = String(-Math.max(VIEW_HALF_ZONE, -M.grid.z0));
   $('rZ').max = String(Math.max(VIEW_HALF_ZONE, zv));
@@ -1108,7 +1186,7 @@ function initUI() {
     const b = document.createElement('button');
     b.textContent = `${sec > 0 ? '+' : ''}${sec}`;
     b.title = `station ${sec}, z = ${z.toFixed(1)} mm`;
-    b.addEventListener('click', () => { state.cutZ = z; setCut('transverse'); if(M.patient.id==='Cuff60') resetView(); });
+    b.addEventListener('click', () => { state.cutZ = z; setCut('transverse'); if(isPersonal()) resetView(); });
     $('stations').appendChild(b);
   });
 

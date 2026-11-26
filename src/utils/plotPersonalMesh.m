@@ -14,7 +14,7 @@ end % Finish computing the cross-section polygons.
 angle=atan2(py-mean(py,2,'omitnan'),px-mean(px,2,'omitnan')); [~,order]=sort(angle,2); % Sort valid vertices around each polygon centre.
 idx=(1:n)'+(order-1)*n; px=px(idx); py=py(idx); % Match the connectivity and coordinates.
 fig=figure(Visible="off",Theme="light",Color="white",Position=[80 80 1200 560]); layout=tiledlayout(fig,1,2); % Place the anatomical section next to the finite contact footprint.
-ax=nexttile(layout);hold(ax,'on'); colours=[0.96 0.75 0.68;0.65 0.40 0.35;0.97 0.91 0.77;0.85 0.93 1;0.57 0.14 0.83]; % Use the tissue and electrode colours of the atlas.
+ax=nexttile(layout);hold(ax,'on'); colours=[0.96 0.75 0.68;0.65 0.40 0.35;0.97 0.91 0.77;0.85 0.93 1;0.57 0.14 0.83;0.48 0.65 0.92;0.80 0.86 0.95]; % Tissue and electrode colours of the atlas, then PDMS lead (6) and PDMS sleeve (7).
 for kind=unique(tissue(cut))' % Plot tissue groups with the same physical edge scale.
     for m=[3 4] % Each clipped tetrahedron has either three or four vertices.
         rows=tissue(cut)==kind & sum(isfinite(px),2)==m; % Select closed polygons of this kind.

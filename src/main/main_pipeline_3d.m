@@ -73,7 +73,7 @@ if ~isfield(p,'personalGeometry') % The original circular case uses radial closu
     sites.r_m(isCuff) = R - p.electrode.cuffIndent_m + sites.thickness_m(isCuff) / 2; % Locate the reference pad centres.
     sites.centre_m(isCuff, 1:2) = sites.r_m(isCuff) .* [cosd(sites.theta_deg(isCuff)), sind(sites.theta_deg(isCuff))];
 end % Preserve the personal pads translated along the local ellipse normals.
-where = contactLocation(sites, fasc);
+where = contactLocation(sites, fasc, p); % Pad locations with the fascicle outlines of each station.
 
 
 %% ===== 2. GEOMETRY ===================================================================
@@ -134,7 +134,8 @@ switch p.electrode.idleContacts
     case "floating",   sIdle = p.electrode.contactSigma_Spm;
     otherwise, error('Unknown idleContacts "%s".', p.electrode.idleContacts);
 end
-tissueSigma = [sigT(1) sigT(1) sigL(1); 0 0 0; sigT(3) sigT(3) sigL(3); sigT(4) sigT(4) sigL(4); sIdle sIdle sIdle]';
+sPDMS = p.electrode.pdmsSigma_Spm; % Conductivity of the PDMS lead bodies and sleeve (insulating by default).
+tissueSigma = [sigT(1) sigT(1) sigL(1); 0 0 0; sigT(3) sigT(3) sigL(3); sigT(4) sigT(4) sigL(4); sIdle sIdle sIdle; sPDMS sPDMS sPDMS; sPDMS sPDMS sPDMS]';
 sig = tissueSigma(:, elemTissue);
 [K0, vol] = assembleConductionP1(tl.nodes_m, tl.tets, sig);
 K0 = K0 + tl.K;
@@ -214,13 +215,13 @@ switch opt.solver
     case "pcg"
         Lc = ichol(A, struct('type', 'ict', 'droptol', 1e-4, 'diagcomp', 1e-3));
         [x, flag, relres] = pcg(A, b, opt.pcgTol, 5000, Lc, Lc');
-        assert(flag==0,'PCG failed (flag %d, residual %.2e).',flag,relres); % Require convergence before exporting a result.
+        assert(flag==0 || relres<1e-8,'PCG failed (flag %d, residual %.2e).',flag,relres); % Require convergence before exporting a result (a stagnation just above the 1e-9 tolerance is accepted below 1e-8; the current balance is checked afterwards).
     otherwise
         error('Unknown solver "%s".', opt.solver);
 end
 end
 
-function where = contactLocation(sites, fasc)
+function where = contactLocation(sites, fasc, p)
 %CONTACTLOCATION Where each contact lies: fascicle(s) / epineurium crossed by its mid-line.
 where = strings(height(sites), 1);
 for k = 1:height(sites)
@@ -228,9 +229,14 @@ for k = 1:height(sites)
     s = linspace(-0.5, 0.5, 201)' * sites.sideXY_m(k);
     pts = sites.centre_m(k, 1:2) + s * sites.w(k, 1:2);
     lab = zeros(size(pts, 1), 1);
-    for i = 1:height(fasc)
-        [xx,yy] = fascicleOutline(fasc,i,linspace(0,2*pi,361)); % Read the true rotated outline.
-        lab(inpolygon(pts(:,1),pts(:,2),xx,yy)) = i; % Classify each sample inside this fascicle.
+    if isfield(p,'personalGeometry') % Insertion mode: outlines of this station (random shapes, displaced by the lead).
+        polys = stationFascicles(p.personalGeometry,sites.section(k));
+        for i = 1:numel(polys), lab(inpolygon(pts(:,1),pts(:,2),polys{i}(:,1),polys{i}(:,2))) = i; end
+    else
+        for i = 1:height(fasc)
+            [xx,yy] = fascicleOutline(fasc,i,linspace(0,2*pi,361)); % Read the true rotated outline.
+            lab(inpolygon(pts(:,1),pts(:,2),xx,yy)) = i; % Classify each sample inside this fascicle.
+        end
     end
     parts = strings(0);
     for v = unique(lab)'

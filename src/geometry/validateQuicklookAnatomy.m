@@ -1,4 +1,5 @@
 function validateQuicklookAnatomy(p) % Check editable nerve and fascicle inputs before plotting.
+if isfield(p.geometry,'patient') && ~isempty(p.geometry.patient), validatePatient(p.geometry.patient,p); return; end % A patient (virtual or measured) carries its own outlines and is validated as such.
 fasc = p.geometry.fascicles_m; % Read the user-supplied [x y endoneurium radius] rows.
 assert(size(fasc,2)==5 && size(fasc,1)>=1 && all(isfinite(fasc),'all'), ...
     'Fascicles must be rows [x y semi-axis-x semi-axis-y rotation-deg].'); % Reject malformed anatomy.

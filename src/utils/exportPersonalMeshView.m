@@ -18,7 +18,7 @@ for k=0:numel(sections) % Include both the overall model and local station views
     selected=true(size(z)); % Start with the complete solved length.
     if k>0, selected=abs(z-centres(k))<=0.85; end % Display a 1.7 mm window about this station.
     surfaces=struct(); % Keep each material independently selectable.
-    for kind=[1 3 5] % Display endoneurium, epineurium and active metal.
+    for kind=[1 3 5 6] % Display endoneurium, epineurium, active metal and the PDMS lead bodies.
         inside=selected & material==kind; % Select tetrahedra of this material.
         name="t"+kind; % Use the solver tissue identifiers.
         omit=zeros(0,3); % Keep all faces of ordinary tissue boundaries.
@@ -38,7 +38,7 @@ clear guard; movefile(path+".tmp",path,'f'); % Publish the complete mesh in one 
 %% 4. Render the first station for the gallery with the same cutaway and tissue colours
 fig=figure(Visible="off",Color="white",Theme="light",Position=[50 50 880 570]); % Create a reproducible static 3D view.
 ax=axes(fig); hold(ax,'on'); % Group the mesh layers on one set of physical axes.
-keys=["cut","t1","cutMetal"]; colours=[0.92 0.78 0.58;0.88 0.50 0.42;0.55 0.22 0.74]; % Match the three tissue and electrode colours.
+keys=["cut","t1","cutMetal","t6"]; colours=[0.92 0.78 0.58;0.88 0.50 0.42;0.55 0.22 0.74;0.48 0.65 0.92]; % Match the tissue, electrode and PDMS lead colours.
 for j=1:numel(keys) % Decode the same mesh surface as the browser.
     part=data.views{2}.(keys(j)); % Use station one in source order.
     vertices=reshape(typecast(matlab.net.base64decode(part.xyz),'single'),3,[])'; % Read world coordinates in mm.
@@ -47,7 +47,7 @@ for j=1:numel(keys) % Decode the same mesh surface as the browser.
 end % Finish the selected meshes.
 axis(ax,'equal','tight'); view(ax,[1 1.2 1.5]); xlabel(ax,'x (mm)');ylabel(ax,'y (mm)');zlabel(ax,'Along nerve (mm)'); % Keep equal spatial scales.
 title(ax,sprintf('3D mesh at station %+d · epineurium cut away',sections(1))); % Identify the opening and its location.
-legend(ax,{'Epineurium','Fascicles','Electrodes'},'Location','eastoutside'); % Identify the visible materials.
+legend(ax,{'Epineurium','Fascicles','Electrodes','PDMS lead'},'Location','eastoutside'); % Identify the visible materials.
 exportgraphics(fig,fullfile(folder,'Cuff60_mesh_3d.png'),'Resolution',150);close(fig); % Save the gallery view for future reruns.
 end
 function patchData=surfaceData(X,T,omit) % Obtain triangular boundaries without smoothing or decimating.

@@ -3,7 +3,6 @@ function fig = plotQuicklookNerve(model) % Draw the same device geometry in 3D a
 mm = 1e3; % Convert stored coordinates from metres to millimetres.
 p = model.parameters; % Read the shared nerve and drawing inputs.
 nerve = model.nerve; % Read the sampled nerve surface and cuff polygons.
-fasc = p.geometry.fascicles_m; % Read the straight fascicle axes and radii.
 fig = figure(Name="Median nerve 3D | " + model.mode, Color="w", Position=[60 110 1190 670]); % Create the interactive figure.
 layout = tiledlayout(fig,1,2,TileSpacing="compact",Padding="compact"); % Show both views side by side.
 space = nexttile(layout); % Allocate the oblique 3D view.
@@ -19,16 +18,17 @@ surf(space, mm*nerve.x_m, mm*nerve.y_m, mm*nerve.z_m, ...
     FaceColor=[0.76 0.65 0.49], FaceAlpha=0.14, EdgeColor="none"); % Draw the locally flattened outer surface.
 plot(front, mm*nerve.x_m(1,:), mm*nerve.y_m(1,:), ...
     Color=[0.26 0.27 0.32], LineWidth=1.5); % Plot the nerve silhouette beyond the electrode stations.
-for k = 1:size(fasc,1) % Draw the fixed outer perineurium boundaries.
-    a_m = fasc(k,3) + p.geometry.tPeri_m; % Include perineurium along the first fascicle axis.
-    b_m = fasc(k,4) + p.geometry.tPeri_m; % Include perineurium along the second fascicle axis.
-    angle_deg = fasc(k,5); % Read the fascicle rotation around the nerve axis.
-    x_mm = mm*(fasc(k,1) + a_m*cos(theta)*cosd(angle_deg) - b_m*sin(theta)*sind(angle_deg)); % Rotate the oval x samples.
-    y_mm = mm*(fasc(k,2) + a_m*cos(theta)*sind(angle_deg) + b_m*sin(theta)*cosd(angle_deg)); % Rotate the oval y samples.
-    surf(space, repmat(x_mm,2,1), repmat(y_mm,2,1), mm*repmat(z_m,1,numel(theta)), ...
-        FaceColor=[0.70 0.43 0.31], FaceAlpha=0.26, EdgeColor="none"); % Draw the fascicle along the nerve axis.
-    patch(front, x_mm, y_mm, [0.97 0.88 0.80], EdgeColor=[0.60 0.44 0.37]); % Show the same fascicle in transverse projection.
-    text(front, mm*fasc(k,1), mm*fasc(k,2), string(k), ...
+base = stationFascicles(p,0); % Undisturbed outlines (circles, ellipses or random shapes).
+sc = []; if isfield(p.geometry,'scenario') && ~isempty(p.geometry.scenario), sc = p.geometry.scenario; end % Insertion scenario, if any.
+if ~isempty(sc), zl = unique([z_m; reshape([sc.stations.z_m]+sc.bump_m*[-1;0;1],[],1)]); else, zl = z_m; end % Axial levels where the outline changes.
+levelPolys = arrayfun(@(z)scenarioOrBase(sc,base,z),zl,'UniformOutput',false); % Outlines at every level.
+for k = 1:numel(base) % Draw every fascicle along the nerve, displaced near the stations after the lead insertion.
+    outer0 = polybuffer(polyshape(base{k}),p.geometry.tPeri_m).Vertices; % Undisturbed outer perineurial boundary.
+    X = zeros(numel(zl),size(base{k},1)); Y = X; Z = X; % Loft of the endoneurial outline through the levels.
+    for i = 1:numel(zl), P = levelPolys{i}{k}; X(i,:) = mm*P(:,1)'; Y(i,:) = mm*P(:,2)'; Z(i,:) = mm*zl(i); end
+    surf(space, [X X(:,1)], [Y Y(:,1)], [Z Z(:,1)], FaceColor=[0.70 0.43 0.31], FaceAlpha=0.26, EdgeColor="none"); % Draw the fascicle along the nerve axis.
+    patch(front, mm*outer0(:,1), mm*outer0(:,2), [0.97 0.88 0.80], EdgeColor=[0.60 0.44 0.37]); % Show the undisturbed fascicle in transverse projection.
+    text(front, mm*mean(base{k}(:,1)), mm*mean(base{k}(:,2)), string(k), ...
         HorizontalAlignment="center", Color=[0.31 0.23 0.22], FontSize=8); % Number the fascicles for overlap review.
 end % Finish drawing the anatomy.
 
@@ -73,3 +73,7 @@ if showProjection % Project one face per mirrored pair to the transverse plane.
     plot(front,vertices(1:2,1),vertices(1:2,2),Color=color,LineWidth=4); % Make the projected active interval visible.
 end % Finish drawing the projected site.
 end % Finish drawing the pad.
+
+function P = scenarioOrBase(sc,base,z) % Outlines at axial position z.
+if isempty(sc), P = base; else, P = scenarioFascicles(sc,z); end
+end
