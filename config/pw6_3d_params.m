@@ -97,8 +97,9 @@ p.domain.nerveLength_m     = 70 * mm;           % [group]
 p.domain.outerRadiusFactor = 3;                 % surrounding muscle up to 3 x the MAJOR semi-axis
                                                 % (= 3 R for a circle, as in 2D)
 p.domain.lateralBC         = "ground";          % outer surface of the muscle: "ground" (as in 2D)
-p.domain.endBC             = "ground";          % end planes z = +/- L/2: "ground" | "insulated" [assumed,
-                                                % D-04: compare both]
+p.domain.endBC             = "insulated";       % end planes z = +/- L/2: "ground" | "insulated" [group
+                                                % 2026-11-27, D-17: grounded ends made every fibre fire
+                                                % at its cut end under an anode (D-04 superseded)]
 
 %% Cuff (D-05) ----------------------------------------------------------------------------------------
 p.cuff.length_m    = 50 * mm;                   % [group] centred on the contacts (z = 0)

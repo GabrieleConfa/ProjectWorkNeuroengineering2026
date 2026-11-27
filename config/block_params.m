@@ -47,14 +47,16 @@ b.fibreInset_m     = 10 * um;               % [assumed] keep lines at least this
                                             % circle (avoids lines on the perineurium itself)
 b.profileStepZ_m   = 50 * um;               % sampling step of V along each fibre (MRG compartments are
                                             % 1 ... 200 um long; V is interpolated linearly between samples)
-b.profileHalfSpan_m = 33 * mm;              % sample |z| <= 33 mm; the end planes (35 mm) are grounded
+b.profileHalfSpan_m = 34.5 * mm;            % sample |z| <= 34.5 mm; the end planes (35 mm) are insulated
+                                            % (D-17), so the fibres can run almost to the end of the model
 
 %% Fibre model: MRG (McIntyre, Richardson & Grill 2002, ModelDB 3810) ------------------------------
 b.mrg.fibreDiam_um   = 10.0;                % [assumed] first runs: the MRG reference fibre (Aalpha/Abeta
                                             % range). Allowed: 5.7 7.3 8.7 10 11.5 12.8 14 15 16
 b.mrg.fibreDiamSweep_um = [5.7 8.7 10.0 12.8 16.0];   % [assumed] diameters for the sweep
-b.mrg.fibreLength_m  = 60 * mm;             % [assumed] centred on z = 0: ends 20 mm beyond the outer
-                                            % stations, far from the stimulus (no end initiation)
+b.mrg.fibreLength_m  = 68 * mm;             % [assumed] centred on z = 0: ends 1 mm from the insulated end
+                                            % planes, where dV/dz ~ 0 (D-17: with grounded planes and 60 mm
+                                            % fibres an anode fired every fibre at its cut end)
 b.mrg.nodeAlignment  = "proximalStation";   % [assumed] a node of Ranvier exactly at the z of the
                                             % proximal stimulating station (best case for excitation);
                                             % "random" = random offset per fibre (seeded)

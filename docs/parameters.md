@@ -56,7 +56,7 @@ All ± are SEM over blocks of a **single** nerve.
 | Cuff-pad indentation at the face edges | 7 µm → 8.4–13 µm at the face centre (+ local sagitta) | assumed (was 10 µm at the centre on the circle) | to test (D-11) |
 | Muscle (outer, grounded) radius | 3 × major semi-axis = 6.5 mm | as 2D (3R), adapted to the oval | chosen (D-10) |
 | Contact conductivity (numerical) / idle contacts | 1e3 S/m / 1e-7 S/m (insulating) | numerical stand-ins | to test (D-07) |
-| End planes z = ±35 mm | grounded | assumed | to compare with insulated (D-04) |
+| End planes z = ±35 mm | insulated (grounded until 2026-11-27) | D-17: grounded planes caused a fibre-end artefact under an anode | chosen (D-17) |
 | Mesh sizes (contacts / fascicles / nerve / outside fine zone / muscle) | 30 / 100 / 150 / 500 / 1200 µm | first guess | convergence study (D-08) |
 
 ## Electrode (phase 3)
@@ -96,7 +96,8 @@ For comparison, the TIME of Zelechowski 2020: AS circle 60 µm diameter; shaft 2
 |---|---|---|---|
 | Electrode CIC, Pt | 0.02–0.3 mC/cm² | course slides 08 | reference |
 | Electrode CIC, Pt-Ir / TiN | 0.05–0.3 / 0.07–3 mC/cm² [CHECK column alignment in the PDF] | course slides 08 | reference |
-| Tissue damage limit | Shannon criterion (log D = k − log Q) — k and source to verify | — | open |
+| Tissue damage limit | Shannon criterion log D = k − log Q (D µC/cm²/phase, Q µC/phase), k = 1.75 for Pt | Tovbis et al. 2026 citing Shannon 1992 (`literature/tovbis_2026.md`); fitted on macro-electrodes, indicative only for our 0.04 mm² contacts | candidate (verify in Shannon 1992) |
+| Anodal block criterion | residual volley at the muscle < 10 % of the target fascicle; other fascicles < 10 % at both ends | D-16 (Tovbis 2026, Zelechowski 2020) | assumed (ask tutor) |
 | AS material of the provided electrode | gold | PresentazionePW5_1105.pdf | given (CIC of gold still to find) |
 | Electroporation threshold of nerve tissue (field) | — | to find (`p.safety.electroporation_Vpm`; used by `scripts/run_field_safety.m`) | open |
 | Field levels reported by the exposure check | 100, 300, 1000, 3000 V/cm; critical volume 1e-3 mm³ | assumed (`p.safety.fieldLevels_Vpm`, `exposedVolume_m3`) | assumed |

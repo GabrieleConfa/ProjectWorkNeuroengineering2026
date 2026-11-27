@@ -118,12 +118,14 @@ end
 function key = solveKey(nodes_m, tets, p)
 %SOLVEKEY Fingerprint of the FE problem, used to decide whether a contact solved by an earlier run
 %   can be reused: it changes if the mesh (number of nodes and tetrahedra, node coordinates,
-%   connectivity) or any parameter that enters the solve changes.
+%   connectivity) or any parameter that enters the solve changes, including the boundary conditions
+%   (added 2026-11-27: before, switching p.domain.endBC reused the solutions of the other condition).
 key = struct('nNodes', size(nodes_m, 2), 'nTets', size(tets, 2), ...
              'nodeSum', sum(double(nodes_m), 'all'), 'nodeAbsSum', sum(abs(double(nodes_m)), 'all'), ...
              'tetSum', sum(double(tets), 'all'), ...
              'materials', p.materials, 'perineurium', p.perineurium, 'electrode', p.electrode, ...
-             'current_A', p.stim.unitCurrent_A, 'solver', p.solve3d.solver);
+             'current_A', p.stim.unitCurrent_A, 'solver', p.solve3d.solver, ...
+             'endBC', string(p.domain.endBC), 'lateralBC', string(p.domain.lateralBC));
 end
 
 

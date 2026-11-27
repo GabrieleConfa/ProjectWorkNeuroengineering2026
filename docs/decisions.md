@@ -89,6 +89,8 @@ Why / source: grounded ends mimic a nerve that continues towards a distant groun
 mimic a truncated nerve. Neither is exact for a finite model.
 Consequence / limitation: TO DO — run both and report the change of V and of the activating
 function at the stations; if it is not negligible, lengthen the domain.
+**Superseded by D-17 (2026-11-27):** the grounded planes caused a fibre-end artefact under an anode; the
+model now uses insulated ends. The grounded solution is kept locally for the comparison asked here.
 
 ## D-05 — Cuff: rigid, tight, insulating wall modelled as a void  (2026-11-13, phase 3)
 Decision: cuff inner surface = nerve surface (no saline gap); inside the cuff the wall (from the
@@ -394,3 +396,158 @@ proximally, or the whole nerve — tutor).
 Consequence / limitation: AF-optimal is not MRG-optimal (a few verification loops); results depend on
 the fibre population chosen inside each fascicle (positions, diameters); one insertion per station is
 one random sample (robustness over insertions and patients = step A4).
+
+## D-16 — Block = anode on the same distal contacts, judged at fascicle level (residual volley < 10 %)  (2026-11-27, block study)
+Decision (tutor via the user, 2026-11-27; criterion chosen from the literature at the user's request):
+- **Scheme**: the distal site drives **the same contacts as the proximal pattern (mirror partners),
+  as an anode**. Its hyperpolarised region must stop the volley of the target fascicle travelling
+  towards the reinnervated muscle. A partial block is acceptable: **some APs may pass, what matters is
+  that the global activation of the target fascicle stops** (tutor).
+- **Proximal stimulus = maximum selective current**: 0.95 × the lowest 10 % threshold among the
+  non-target fascicles (the strongest stimulus that still activates only the target), so the volley to
+  block is as large as a real selective sensation can make it (user, 2026-11-27).
+- **Criteria, all per fascicle, as fractions of ALL the fibres of the fascicle**:
+  C1 fewer than 10 % of the target fascicle's fibres deliver an AP to the muscle end;
+  C2 fewer than 10 % of every other fascicle deliver an AP to the muscle end;
+  C3 fewer than 10 % of every other fascicle send extra APs to the brain end (no new sensation from the
+  anode's virtual cathodes). Reported with them: the block ratio blocked / fired of Tovbis et al. 2026,
+  and the charge and charge density on the anode vs Shannon (k = 1.75) and the Pt CIC.
+- Fibre model, sites and superposition as in D-12; pulses: trapezoidal anodal pulses (ramps 0, 0.3,
+  1 ms; plateau 0.1–0.9 ms after the proximal onset, containing the arrival of the volley).
+- Code: `notebooks/block_volley.ipynb`, `src/block/volley.py`, `fibre_jobs.ap_times_job`.
+Alternatives: block ratio ≥ 90 % of the fired fibres (Tovbis et al.: their best designs reach ≈ 90 %,
+so a 90 % threshold would sit at the edge of what is achievable, and it ignores how big the residual
+volley is compared with the fascicle); a drop of the compound (ENG/EMG) amplitude by a set percentage
+(close to a measurement, but no source for the percentage); 100 % block (not what the tutor asks, and
+not reached in the literature).
+Why / source: Tovbis et al. 2026 (`literature/tovbis_2026.md`: anodic block = % of activated fibres
+stopped, maximum 75–91 %); Vučković 2008 and Ahmed 2020 (partial anodal block in large nerves);
+Zelechowski 2020 (the 10 %-of-fibres criterion that defines an activated fascicle in the whole project,
+D-15). The patient-centred goal (user: "the important is to have less not good sensation for the
+patient") is covered by C1 (twitch of the reinnervated muscle) and C3 (extra sensations).
+Consequence / limitation: **[assumed]** the 10 % level was validated on sensory thresholds; applying it
+to the residual volley at the muscle assumes that a sub-threshold recruitment of the fascicle gives no
+noticeable twitch — to confirm with the tutor (it is the `BLOCK_LIMIT` knob of the notebook). Motor and
+sensory fibres are not distinguished; one fibre diameter (10 µm); node aligned with the proximal
+contact. This supersedes the "block goal" open point of D-15; B1 (one-directional collision block)
+stays as an alternative if the anode cannot meet C1–C3.
+
+## D-17 — Insulated end planes and fibres to 1 mm from them (fibre-end artefact)  (2026-11-27, phases 3, 5, block study)
+Decision (user, 2026-11-27): the end planes z = ±35 mm of the 3D model are **insulated**
+(`p.domain.endBC = "insulated"`, supersedes D-04); the only ground is the outer muscle cylinder. The fibre
+profiles are sampled over |z| ≤ 34.5 mm and the MRG fibres are 68 mm long (ends at ±34 mm, 1 mm from the
+planes; `config/block_params.m`). The solve-cache fingerprint now includes the boundary conditions
+(`solveKey` in `src/main/solve3DContacts.m`: before, switching endBC silently re-used the other solution).
+Why: in the first run of `block_volley.ipynb` (grounded planes, 60 mm fibres ending at ±30 mm) the distal
+anode AS44 fired **every** F7 fibre at 26 µA, whatever the ramp. The recorded membrane voltage showed the AP
+starting at the **distal fibre end (z ≈ +30 mm)**, ~0.7 ms after the anode onset, in the nearest and the
+farthest fibre alike (`results/block/volley_groundEnds/diagnostic_anode_alone.png`). The anode current flows
+along the nerve to the grounded plane 5 mm beyond the fibre end, so every fibre sees the same depolarising
+end term (activating function at the end node +39.5 ± 0.5 V/m² per µA for all of F7, vs 91–302 at the
+virtual cathodes next to the anode). Real fibres do not end there: an artefact of the truncated model, which
+also explains the ramp-independent anodal "excitation" of the second round (`block.md` §6). With insulated
+planes dV/dz ≈ 0 at the ends, i.e. the model behaves as if mirrored copies of the nerve continued beyond
+them (method of images), and the fibre ends see almost no gradient.
+Alternatives: a longer model with grounded ends (reduces the end term but does not remove it; larger mesh);
+passive (non-excitable) end nodes in the fibre model (no re-solve, but only hides the symptom: the field is
+unchanged and could still fire the end region at high current).
+Check: the notebook now reports, for every anode setting, the fraction of fibres whose first AP starts
+within 3 nodes of a fibre end (`volley.started_at_end`), and warns if it is not 0.
+Consequence / limitation: all 48 contacts must be re-solved and every downstream export redone (fibre
+profiles, viewer data, notebooks). The grounded results are kept locally for the D-04 comparison
+(`results/main3d/UA01_3d_groundEnds.mat`, `results/block/UA01_fibre_profiles_groundEnds.h5`,
+`results/block/volley_groundEnds/`): near-field quantities (thresholds of the proximal cathode) are expected
+to change little; the far field and everything under an anode may change a lot.
+Result of the re-run (2026-11-27): no fibre-end firing; the near field (proximal thresholds) is unchanged;
+the anode now fires the fibres at the end of the insulating sleeve (z ≈ 25 mm, `block.md` §6, third round),
+a device-dependent effect (D-05 sleeve), not a model-boundary artefact.
+
+## D-18 — Balanced distal anode: the anodal current returns through the rest of the distal site  (2026-11-27, block study)
+Decision (user, 2026-11-27, "balanced anode"; return contacts chosen from the static check below): the
+mirror anode (AS 44 for the proximal AS 2) keeps its role, but its current is taken back by **all the other
+23 contacts of the distal site, split equally** (sum of the weights = 0) instead of the far ground
+(`ANODE_RETURN = "distal_site"` in `notebooks/block_volley.ipynb`; outputs in a subfolder per configuration,
+`results/block/volley/<prox>_<tag>/`).
+Why: with a monopolar anode the whole current flows along the nerve inside the insulating sleeve and leaves
+it at the sleeve ends, where the potential bends and every fascicle is fired (from 42 µA, before any block;
+`block.md` §6 third round). A local return keeps the current near the distal site. Static check from the FEM
+profiles (activating function per µA of the distal channel, 10 µm nodes):
+
+| return | sleeve-end max | F7 hyperpolarisation (median) | F7 virtual cathodes | worst other fascicle, 10 % level |
+|---|---|---|---|---|
+| none (monopolar) | 107 | −655 | 118 | 107 (sleeve end) |
+| 2 cuff pads of station +4 | 0.9 | −548 | 138 | 619 (F5, next to a pad) |
+| other 5 contacts of station +4 | 0.9 | −504 | 130 | 329 |
+| all 6 of station +3 | 6.7 | −657 | 328 | 768 |
+| stations +2 and +3 (12) | 9.4 | −659 | 221 | 369 |
+| **rest of the distal site (23)** | **9.7** | **−631** | **171** | **180** |
+| all 47 other contacts | 30.5 | −643 | 144 | 129 (uses the proximal site too) |
+
+The distal-site return removes the sleeve-end effect, keeps the hyperpolarisation of F7, and spreads the
+cathodic side over many contacts (1/23 of the current each). It is also compatible with a stimulator that
+drives "one contact against the rest" (open hardware question, `project_brief.md`).
+Alternatives: the table above; a guard (secondary) anode as in Tovbis et al. 2026; a shorter sleeve (device).
+Consequence / limitation: requires opposite polarities at the same time on the distal site (to confirm with the
+tutor); the AF is only a proxy (a narrow push next to a contact is less effective than the broad, unflanked
+sleeve-end bump), so the NEURON run decides; superposition with insulating idle contacts (D-07).
+Result (2026-11-27): worse than monopolar: fires F7 from 26 µA (vs 42), block ratio 0. The return contacts
+close to F7 (AS 38, AS 26, AS 33) strengthen its virtual cathode (+118 → +171 V/m² per µA at z = 8.1 mm).
+The static proxy missed it because it compared the other fascicles only. A return far from the target
+fascicle would be needed (`block.md` §6, third round).
+
+## D-19 — Distal block designed by optimisation over all contacts (mirror rule abandoned)  (2026-11-27, block study)
+Decision (user, 2026-11-27: "abandon the mirror option, minimise the activity of the electrode with the
+minimum electrode in anode configuration, use everything"): the distal configuration is no longer the mirror
+of the proximal pattern. It is designed by a mixed-integer linear program on the FEM solution
+(`src/block/anode_design.py`, `notebooks/block_anode_design.ipynb`) and checked with the MRG fibres.
+- **Problem.** Variables: the signed current of every contact except the proximal stimulating one (AS 2).
+  With A = activating function (AF) of each contact for 1 A at the nodes of every fibre (superposition, D-07),
+  maximise h subject to: AF ≤ 1 at every node of every fibre (all fascicles: the distal site must fire
+  nothing); AF ≤ −h at K consecutive nodes of every fibre that the proximal pulse fires in the target
+  fascicle (an AP jumps over one inexcitable node, `block.md` §6); AF ≥ −0.3 h on the brain side of the
+  stimulation site on those fibres (the sensation must pass); at most N active contacts (binary variables).
+  h is the scale-free ratio block depth / worst depolarisation. The block nodes may lie anywhere between
+  3 mm distal of the proximal site and 3 mm inside the sleeve end; the position is chosen by a scan with all
+  contacts allowed.
+- **Solver.** `scipy.optimize.milp` (HiGHS) with constraint generation (the ~24 000 depolarisation rows are
+  added only when violated) and per-contact current bounds (5 × what the contact could carry alone):
+  ~1 s per linear program, 12–30 s per mixed-integer program.
+- **Check.** Each candidate (best design per number of active contacts) is swept in current with the
+  proximal pulse on the target fascicle, then the best settings on the whole nerve, with C0–C3: C0 (added
+  now) = the target fascicle still delivers ≥ 90 % of its brain-going APs; C1–C3 as in D-16.
+- **Result to report**: the passing configuration with the fewest contacts, then the lowest charge.
+Static result (2026-11-27, UA01, 10 µm, 13 fired F7 fibres; ratio on the worst target fibre vs the worst
+depolarisation on any fibre): the mirror anode AS 44 scores 1.6 at K = 1 and 0 at K = 2; with all contacts
+6.2 (K = 1), 3.7 (K = 2), 2.5 (K = 3), block best placed between the sites (z ≈ 5–8 mm, stations +1/+2), with
+anodes on the contacts nearest F7 (AS 26, 32, 38) and cathodic contacts that shape the field (e.g. AS 31).
+Alternatives: optimise directly with MRG (exact but every evaluation is a NEURON run); a fixed bipolar or
+tripolar geometry (Tovbis et al. 2026); kilohertz block (needs the frequency-dependent tissue model).
+Consequence / limitation: the AF is a proxy (it ignores pulse shape and the width of a depolarised region:
+broad weak bumps fire more easily under long pulses than narrow strong ones), so the ratio that actually
+blocks is set by the NEURON check; designs use several contacts with different currents and polarities at
+once, which needs a multi-channel stimulator (open hardware question, `project_brief.md`); one fibre
+diameter; the block-node position is chosen with all contacts and kept for fewer contacts.
+
+## D-20 — Check of the fibre model against DC-block literature; slowly ramped anodal block  (2026-11-27, block study)
+
+Context: none of the 11 optimised anodal designs of D-19 blocked any F7 fibre in NEURON; each fired all
+of F7 before blocking any (`block.md` §6, fourth round). The user asked whether the NEURON model is wrong.
+Decision: before changing anything else, test our MRG implementation on the textbook case of Bhadra &
+Kilgore 2004 (*IEEE TNSRE* 12:313, doi:10.1109/TNSRE.2004.834205). In that case they found: DC block
+with both polarities, the cathodal (depolarisation) block at a lower current than the anodal
+(hyperpolarisation) block, and firing at a fast switch-on. The test uses a point electrode in a
+homogeneous medium (σ = 0.571 S/m, endoneurium longitudinal; it only scales the currents, and the results
+are given in units of the cathodic threshold). Then test the cure their results suggest: a **slowly
+ramped** anodal current (2 and 8 ms ramps, plateau while the volley passes, slow fall), on the contacts
+most selective for F7 on the muscle side and on two D-19 designs, judged with C0–C3 (D-16).
+Notebook `notebooks/block_model_check.ipynb`; `fibre_jobs.profile_ap_times_job` added for potentials
+given explicitly.
+Alternatives: kilohertz-frequency AC block (KHFAC: Kilgore & Bhadra 2014, doi:10.1111/ner.12100; the
+established reversible block, but it has an onset response and needs the frequency-dependent tissue
+model); unidirectional stimulation with a cathode and an adjacent anode in one pulse (van den Honert &
+Mortimer 1979; Tovbis et al. 2026). A static check showed that in our geometry the anode next to an F7
+cathode reaches only ≈ 0.3× the cathode's excitation drive on F7, so it is not pursued first.
+Consequence / limitation: a slow ramp means a long phase, so the charge per phase on a 0.2 × 0.2 mm
+contact is far above the Shannon and platinum limits. If it is the only thing that blocks, the report must
+say so: in the literature DC-like block needs special electrodes (charge-balanced DC, Bhadra et al. 2018,
+doi:10.2217/bem-2017-0004).

@@ -406,6 +406,10 @@ fibres: it sets contact currents and can only observe whole fascicles (compound 
   configuration JSON shared with NEURON (§8).
 
 **Task B — block towards the amputated limb** (first round and its results: `block.md` §6, §5.3 here)
+- **Update 2026-11-27 (tutor, D-16):** the scheme to test first is the **anodal block on the same
+  distal contacts**, judged per fascicle (residual volley at the muscle < 10 % of the target fascicle,
+  no new activity in the others). Written: `notebooks/block_volley.ipynb` (includes B0 check and B2
+  ramps). B1 stays as the alternative if the anode cannot meet the criteria.
 - **B0.** Re-run the first round on the Gmsh solution (all 48 contacts solved, no mirror), ≈ 10 min.
 - **B1. One-directional distal stimulation (collision block, the most promising).** A distal cathode
   with anodes on its distal side (e.g. cathode on station +3, anodes on +4): the distal AP travels only
@@ -433,7 +437,9 @@ fibres: it sets contact currents and can only observe whole fascicles (compound 
    definition (source to find before citing);
 3. optimiser limits: maximum number of active contacts, return to ground or balanced local return,
    contact material for the charge limit;
-4. block goal (tutor): block only the fibres the proximal site fired, or the whole nerve;
+4. block goal (tutor): block only the fibres the proximal site fired, or the whole nerve; **answered
+   2026-11-27 (D-16)**: anode on the same distal contacts, the global activation of the target
+   fascicle must stop (partial block allowed); notebook `block_volley.ipynb` (`block.md` §5);
 5. **what the stimulator can drive** (user, 2026-11-26: it may control the electrode only as a whole,
    not contact by contact): single contacts or only groups, opposite polarities on nearby contacts,
    number of independent channels, return electrode, pulse shapes. Questions in `project_brief.md`
@@ -459,7 +465,9 @@ Notes (to verify):
 ### 8. End goal: real-time simulation in the viewer, any electrode configuration (user, 2026-11-25)
 **Status 2026-11-26:** first part done — the viewer has a *Pattern* mode: any set of contacts with
 signed currents, summed in the browser from a 16-bit potential exported per contact (gzip), with V,
-|E| (finite differences), AF+ and AF− (README, *Patterns*). Still to do for this goal: the fibre model in
+|E| (finite differences), AF+ and AF− (README, *Patterns*). **2026-11-27:** first step of the fibre part —
+*Volley* playback of NEURON runs (AP times at every node, exported by `volley.export_viewer_volley`;
+README, *Volley playback*); the exported runs will also be the reference for the JS port. Still to do for this goal: the fibre model in
 the browser (JS port of MRG checked against NEURON), time courses (pulse widths, delays), and the
 "floating" idle contacts for an exact superposition (today: idle contacts insulating, D-07).
 

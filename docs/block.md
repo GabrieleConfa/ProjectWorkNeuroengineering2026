@@ -1,7 +1,9 @@
 # Blocking the signal towards the amputated limb — conduction-block study
 
-Status: first round (2026-11-25), on the solved 3D model UA01 as shown in the viewer. Choices and
-their reasons: `decisions.md` D-12. Roadmap item: `design.md` §5.3.
+Status: first round (2026-11-25) and second round (anode on the same contacts, 2026-11-26) on the
+PDE Toolbox model; third round written 2026-11-27 (travelling volley + anodal block judged per fascicle,
+`notebooks/block_volley.ipynb`, §5), to run on the Gmsh solution. Choices and their reasons:
+`decisions.md` D-12, D-16. Roadmap item: `design.md` §5.3.
 
 ## 1. The clinical problem
 
@@ -98,12 +100,13 @@ results/block/UA01_<pattern>_D<d>_*.csv/json/png
 - **Mirror.** Only station −4 is solved. Because the section is the same along z (D-03) and the two
   halves are mirror images, the profile of contact 43 (station +4) is that of contact 1 flipped in z.
 - **Fibres.** Straight lines parallel to z on the viewer grid (every 100 µm), inside the fascicles,
-  sampled every 50 µm over |z| ≤ 33 mm (the domain ends at ±35 mm, grounded). Lines through a contact
+  sampled every 50 µm over |z| ≤ 34.5 mm (the domain ends at ±35 mm; end planes insulated since D-17,
+  grounded before). Lines through a contact
   are dropped (a fibre cannot cross metal). `results/block/UA01_fibres.png` shows them.
 - **MRG fibre.** The double-cable model of McIntyre, Richardson & Grill (2002): nodes of Ranvier with
   fast and persistent Na, slow K and leak; paranodes (MYSA, FLUT) and internodes (STIN) with a
   myelin sheath and a periaxonal space. Rebuilt in Python from MRGaxon.hoc (ModelDB 3810) so that
-  the length (60 mm, 53 nodes for D = 10 µm) and the diameter are parameters. The FEM potential is
+  the length (68 mm, 59 nodes for D = 10 µm, since D-17; 60 mm and 53 nodes before) and the diameter are parameters. The FEM potential is
   imposed on every compartment as `e_extracellular`.
 - **Counting APs.** At the nodes 5 mm from each end of the fibre: an AP at the proximal end = a
   signal to the brain, at the distal end = a signal to the muscle.
@@ -151,6 +154,30 @@ example fibre, one raster, the best setting checked on all fibres, and a scorebo
 24-contact solve (`p.solve3d.sections = -4:-1`) and a new `export_block_profiles`; with fewer
 contacts it skips the configurations it cannot build. Outputs: `results/block/anode_configs/`
 (≈ 10–15 min).
+
+**The travelling volley and its anodal block, at fascicle level (third round, 2026-11-27):
+`notebooks/block_volley.ipynb`.** The tutor's direction (2026-11-27): the distal site drives the same
+contacts as an **anode**; its hyperpolarised region must stop the **global activation** of the target
+fascicle, even if some single APs pass. Choices and criterion: D-16. The notebook:
+1. computes the threshold of every fibre for the proximal pattern (cached), the recruitment curve of
+   every fascicle, and the **maximum selective current** (0.95 × the lowest 10 % threshold of the
+   other fascicles); the target is the fascicle the pattern excites most easily (the Gmsh lead
+   insertion may have moved the contact to another fascicle);
+2. shows the **moving AP** on one fibre (voltage against position and time, snapshots, GIF) and the
+   **volley** of each fascicle: the fraction of its fibres carrying an AP at each node and instant
+   (`src/block/volley.py`, from the AP times at every node returned by `fibre_jobs.ap_times_job`);
+3. sweeps the anodal current × ramp length (trapezoids, plateau 0.1–0.9 ms after the proximal pulse) on
+   the target fascicle (proximal + anode, and anode alone to see its own firing), then re-checks the
+   best settings on the whole nerve;
+4. judges each setting with C1–C3 of D-16 (residual volley at the muscle < 10 % of the target
+   fascicle; other fascicles < 10 % at the muscle end and in extra APs to the brain), with the block
+   ratio of Tovbis et al. 2026 and the Shannon / CIC check alongside;
+5. animates the volley with the block (GIF) and plots the **reach profile** (fraction of the target
+   fascicle reached by an AP at each node: it drops past the anode).
+It needs the profiles exported from the current (Gmsh) solution first (step B0: `export_block_profiles`;
+the notebook refuses older profiles). Outputs: `results/block/volley/` (≈ 20–30 min on 7 processes).
+The runs can be replayed in the 3D viewer (*Volley* section, README): `volley.export_viewer_volley` writes the AP
+times of each run to `results/viewer/<id>/volley_<name>.js` (a few hundred kB) and the index `volleys.js`.
 
 ## 6. Results (first round, 2026-11-25)
 
@@ -234,6 +261,142 @@ insertion, so the 48 contacts are all solved and no mirror is used (the export m
 contacts); fibre lines are placed inside the irregular outlines, and lines that cross a displaced
 fascicle edge or the PDMS lead are excluded. The first-round results above are from the PDE Toolbox
 model (straight shanks, circles) and must be re-run on the new solution.
+
+**Third round, first run (2026-11-27, Gmsh model, grounded end planes): the anode result is an artefact.**
+Files: `results/block/volley_groundEnds/` (kept for the comparison; D-16, D-17).
+- *Proximal stimulus.* In the Gmsh model AS 2 lies in the epineurium (lead insertion), 0.14 mm from F7,
+  0.16 mm from F3, 0.39 mm from F8: the selectivity window for F7 falls from ×12 (PDE Toolbox model, contact
+  inside F7) to **×1.4**. F7 10 % threshold 35.6 µA (1.8 nC); maximum selective current 46.9 µA (2.3 nC)
+  recruits 59 % of F7 (13 of 22 fibres) and 7 % of F3. Conduction velocity 51.6 m/s; the volley reaches
+  the distal site 0.50 ms after the pulse. The moving AP and the volley figures/GIFs behave as expected.
+- *Distal partner.* The "same electrode" AS 44 is not in the same place: each station has its own random
+  lead insertion, so AS 44 sits at (0.32, −0.34) mm vs AS 2 at (0.29, +0.24) mm; F7 lies between them
+  (0.14 mm from both).
+- *Anode sweep (36 settings, 10 µA–2 mA, ramps 0/0.3/1 ms).* No setting met C1; **block ratio 0 at every
+  setting**. Up to 16 µA the anode changes nothing; from 26 µA the anode alone fires **all** F7 fibres,
+  identically for every ramp. The membrane voltage shows why: the AP starts at the **distal fibre end**
+  (z ≈ +30 mm, 5 mm from the grounded end plane), ~0.7 ms after the anode onset, in the nearest and the
+  farthest fibre alike, while the anode's own hyperpolarised zone is clearly visible at +10 mm. The anode
+  current flows along the nerve to the grounded plane: every fibre sees the same end depolarisation
+  (+39.5 V/m² per µA at the end node). Real fibres do not end there, so this firing is an artefact; it hid
+  any block above 26 µA, and it also explains the ramp-independent anodal firing of the second round.
+- *Fix (D-17):* insulated end planes, fibres to ±34 mm, cache fingerprint with the boundary conditions;
+  re-solve, re-export and re-run. The notebook now flags any AP that starts at a fibre end.
+
+**Third round, second run (2026-11-27, insulated end planes, D-17): no fibre-end firing; the anode now fires
+the fibres at the end of the insulating sleeve.** Files: `results/block/volley/AS2_monopolar_AS44/`.
+- *Near field unchanged*: proximal thresholds, recruitment, conduction velocity and arrival time identical to
+  the grounded run (to 3 digits): the end condition does not affect the stimulation side (D-04 comparison).
+- *Anode sweep*: still no setting meets C1 and the block ratio is 0 everywhere. Up to 26 µA the anode does
+  nothing; from 42 µA (below the proximal current, 46.9 µA: the 0.8 ms anodal pulse needs much less
+  current than the 50 µs proximal one) the anode alone fires all of F7, for every ramp. No AP starts at a
+  fibre end any more (`frac_fired_at_fibre_end` = 0).
+- *Where the anode fires*: the first AP starts at **z = 25.3–26.5 mm**, the end of the 50 mm PDMS sleeve
+  (±25 mm), not at the virtual cathodes beside the anode (8.1 and 12.7 mm). Threshold 42 µA: start at
+  0.84 ms (late in the plateau); 69 µA: 0.49 ms; 111 µA: 0.34 ms (strength–duration); with ramps it starts
+  during the ramp. Inside the insulating sleeve the anode current flows along the nerve and leaves into
+  the muscle at the sleeve end: the potential bends there and the activating function has a broad (~5 mm),
+  unopposed depolarising peak at 25.4 mm (median 34 V/m² per µA on F7, 40 on F1, 56 on F4: every fascicle).
+  Weaker than the virtual cathodes beside the anode (91–302) but not flanked by a hyperpolarised zone, so a
+  long pulse fires it first. This is the cuff-edge effect that Tovbis et al. 2026 control with the distal
+  electrode edge length (≤ 1 mm in their best design; here the anode is 14.7 mm from the sleeve end).
+- *Real or not*: it depends on the device: a tight insulating sleeve 50 mm long is a group assumption (D-05,
+  wall and fit unknown). To ask the tutor. A balanced anode (current returned by contacts inside the sleeve
+  instead of the far ground) would send almost no net current to the sleeve end.
+- *Is a block hidden under the sleeve-edge firing? No.* Proximal APs counted 3.5 mm beyond the anode
+  (z = 13.8 mm) at their expected arrival (±0.1 ms): 11/13 at 10–26 µA (the reference: the window misses two
+  late fibres; stage 1 shows all 13 reaching the muscle), 9/13 at 42 µA (the sleeve end fires only at
+  0.84 ms, after the volley has passed: a clean test), 12–13/13 at 69 µA rectangular (the anode shifts the
+  arrival times rather than stopping the APs). The 0/13 cases (111 µA with 0.3 ms ramps, 69–111 µA with 1 ms
+  ramps) are collisions with the anode's own AP, fired before the volley arrives, not blocks. **Conclusion:
+  below its own excitation threshold the single anode on AS 44 blocks at most 2 of the 13 fired fibres
+  (≤ 15 %); C1 needs ≥ 11 of 13.** A single small contact cannot hyperpolarise F7 enough before it (or the
+  sleeve end) fires the fibres.
+- *Why the timing is not the problem, and what is.* The anode plateau (0.1–0.9 ms after the proximal onset)
+  contains the arrival of the volley at the anode (0.49–0.51 ms): the hyperpolarisation is fully on when the
+  APs pass. The limit is spatial: a 0.2 mm contact hyperpolarises a region shorter than one internode
+  (1.15 mm for 10 µm fibres). On the median F7 fibre the activating function per µA at the nodes is
+  +118 (8.1 mm), −90 (9.3), **−655 (10.4, under the anode)**, +7 (11.6), +112 (12.7): only one node is
+  strongly hyperpolarised (15 of 22 fibres; two nodes in the other 7). A myelinated fibre conducts with a
+  safety margin (the current from an active node is several times what the next node needs), so an AP can
+  jump over a single node that cannot fire; it is only delayed (seen at 69 µA, diagnostic 3). To silence
+  that one node the current must rise until the virtual cathodes (ratio ~1:4 to the hyperpolarisation) or
+  the sleeve end fire the fibres first. Anodes on consecutive stations along F7 (AS 38 at +3, AS 44 at +4)
+  widen the hyperpolarised zone to 3 nodes (−196, −72, −245 per µA of total current) but weaken it per µA:
+  a trade-off only the fibre model can settle.
+- *Next (D-18): balanced anode.* The anodal current is returned by the other 23 contacts of the distal site
+  instead of the far ground: the static check predicts the sleeve-end depolarisation to vanish (107 → 9.7
+  V/m² per µA) with the F7 hyperpolarisation kept (−655 → −631); the 2 station pads alone would instead push
+  F5 hard (619). Notebook `ANODE_RETURN = "distal_site"`, outputs `results/block/volley/AS2_balanced_*`.
+
+**Third round, balanced anode (2026-11-27, D-18): worse.** Files: `results/block/volley/AS2_balanced_AS44_ret-distal-site/`.
+Anode AS 44 with its current returned by the other 23 distal contacts. The sleeve-end depolarisation is gone
+(9.7 vs 107 V/m² per µA) and no AP starts at a fibre end, but the anode now fires F7 from **26 µA** (32 % of
+the fascicle with a rectangular pulse, 82–100 % with ramps; 42 µA for the monopolar anode), and the block
+ratio is still **0** at every current. Cause (static AF on F7): the return contacts closest to F7 act as weak
+cathodes next to it, AS 38 (station +3, z = 8.3 mm, 0.37 mm from F7) on the node at 8.1 mm where the anode
+already has its proximal virtual cathode (+118 → **+171** per µA), and AS 26/33 (stations +1/+2) on the nodes
+at 3.5–7 mm (+37 … +104). The hyperpolarisation under the anode is unchanged (−631 vs −655), so the ratio
+hyperpolarisation : strongest depolarisation falls from 5.5 : 1 to 3.7 : 1 and the fibres fire earlier.
+**Summary of the third round:** monopolar (grounded ends: artefact), monopolar (insulated ends: sleeve-end
+firing from 42 µA, ≤ 2 of 13 fibres blocked before it) and balanced (firing from 26 µA, none blocked): in no
+configuration does the single mirror anode stop the F7 volley before it fires the fibres itself. Two
+mechanisms set the limit: a 0.2 mm contact hyperpolarises one node only (the AP jumps it), and every way of
+raising its current makes some other spot depolarise first (virtual cathodes, sleeve ends, return contacts).
+
+**Fourth round (2026-11-27, D-19): the distal configuration designed by optimisation over all contacts.**
+`notebooks/block_anode_design.ipynb` (code `src/block/anode_design.py`): for N = 1, 2, 3, 4, 6 active contacts
+and K = 1–3 consecutive block nodes, the configuration that maximises block depth / worst depolarisation
+(mixed-integer LP on the unit activating functions, D-19), then a NEURON check of the best design per N
+(current sweep with the proximal pulse on F7, whole-nerve check with C0–C3). The best block site is between
+the two sites (z ≈ 5–8 mm), not under station +4. A chosen design can be replayed with all the volley
+pictures in `block_volley.ipynb` (`DIST_PATTERN = "design:<name>"`). Outputs: `results/block/anode_design/`.
+
+*Result (NEURON, 11 designs, rectangular 0.8 ms pulses, 5 µA–1 mA):* **no design blocked a single F7
+fibre.** Each one went from 0 % blocked to "the design alone fires all 22 F7 fibres" within one current
+step (×1.5): at 17 µA for the 3-contact single-node design, 25–58 µA for the 2- and 3-node designs.
+Static numbers at the last current that fired nothing: hyperpolarisation of the block nodes up to
+1.5·10⁴ V/m², about half the activating function the 50 µs proximal pulse needs to fire F7 (≈ 3·10⁴ V/m²).
+The worst depolarisation anywhere was only 3–8·10³ V/m², which is enough to fire under a 0.8 ms pulse. So
+the block needs more current than the current at which the distal site fires the fibres, which is what
+Bhadra & Kilgore 2004 report for hyperpolarising DC block (see the fifth round).
+
+**Fifth round (2026-11-27, D-20): is the fibre model wrong? Textbook check and slow-ramp block.**
+`notebooks/block_model_check.ipynb`. Literature: Bhadra & Kilgore 2004 (*IEEE TNSRE* 12:313,
+doi:10.1109/TNSRE.2004.834205), DC block in NEURON (squid, frog and mammalian models) and in the frog
+nerve. Both polarities block, depolarisation block needs less current than hyperpolarisation block, the
+block can sit under the electrode or at the virtual electrodes, and a fast switch-on fires the fibre.
+Every pulse used here so far rose in ≤ 1 ms. The notebook does three things:
+- **A:** reproduces their test on our MRG fibre (point electrode, homogeneous medium, abrupt vs 5 ms ramp,
+  anode and cathode). If our fibre blocks there, the model and the code are fine.
+- **B:** finds where and when the round-4 designs fired F7: at switch-on, during the plateau (virtual
+  cathode) or after switch-off (anode break).
+- **C:** tries a slow-ramp anodal block in the nerve (ramps of 2 and 8 ms, plateau while the volley passes),
+  with C0–C3 and the charge check. The cost is a long phase, and the charge per phase rises with it.
+
+Outputs: `results/block/model_check/`.
+
+*Results (2026-11-27):*
+- **A (point electrode, 10 µm MRG fibre):** our fibre blocks with both polarities, so the model and the
+  code can block. With an abrupt switch-on the anode blocks the launched AP from 2.3× the cathodic 50 µs
+  threshold, but fires the fibre itself from 1.2–1.7×. A 5 ms ramp does not prevent the firing: it still
+  happens during the ramp or the plateau. The ramped cathode blocks from 4.6× and fires from 0.6×. No setting
+  gives a clean block. This matches the literature on MRG: Miles et al. 2007 found ramps do not remove the
+  onset response. Peña et al. 2025 reproduced the onset-free ramped block only after adding slow sodium
+  inactivation, which MRG lacks (`docs/literature/block_methods_review.md`).
+- **B (where the round-4 designs fired F7):** never near the block nodes. Every design fired all of F7 at
+  the **sleeve end** (z = 25.3–27.6 mm) or at the last fibre node (33.4 mm), either during the plateau or at
+  switch-off. Every design had a net anodic current (+0.7 to +2.8 × the largest weight); that current leaves
+  the insulating sleeve through its ends. Static check: the sleeve-end depolarisation on F7 is
+  ≈ 31 V/m² per µA of net current, spread over 4 nodes. It fired at 1.2–1.4·10³ V/m² in every design, a
+  consistent threshold about 20× below the focal 50 µs threshold. The optimiser rated it as harmless (its
+  peak is 3–8× lower than the centre peak): **the activating function misses broad depolarisations under
+  long pulses.**
+- **C (slow-ramp anode, 2/8 ms, single contacts and two designs):** all fire all of F7 from 33–56 µA, with
+  no block before. The charge per phase is over the Shannon limit from 55 µA (2 ms ramp).
+- **Balanced designs (static check after the run):** with zero net current the sleeve-end bump drops to
+  0–18 % of the centre peak. The returns go to proximal contacts (AS 3, 8, 13, 20), and the static ratio
+  falls to 0.4–1.3 for K = 2, against 1.4–2.8 unbalanced.
 
 ## 7. Limitations and next steps
 

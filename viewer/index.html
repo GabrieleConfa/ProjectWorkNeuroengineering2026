@@ -85,6 +85,14 @@
   #patGrid input.cath { border-color: #4cc9f0; background: rgba(76, 201, 240, 0.16); }
   #patGrid input.anod { border-color: #ff6b4a; background: rgba(255, 107, 74, 0.16); }
   #patGrid input:disabled { opacity: 0.3; }
+  #btnVPlay { width: 100%; margin: 4px 0; padding: 6px; font-weight: 600; }
+  #btnVPlay.on { background: rgba(255, 204, 85, 0.22); border-color: var(--accent-2); }
+  #volleyInfo table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  #volleyInfo td { padding: 0 4px 0 0; }
+  #volleyInfo td.hi { color: #ff8a65; }
+  #volleyChart { position: fixed; left: 16px; bottom: 52px; width: min(560px, calc(100vw - 330px));
+    padding: 8px 10px 6px; box-sizing: border-box; display: none; }
+  #volleyChart canvas { width: 100%; height: 220px; display: block; }
   @media (max-width: 720px) {
     #panel { width: auto; left: 16px; top: auto; bottom: 16px; max-height: 45vh; }
     #title { max-width: calc(100vw - 32px); }
@@ -133,6 +141,38 @@
     <label class="line">Colours <select id="selCmap"><option value="turbo">turbo</option><option value="inferno">inferno</option></select><span></span></label>
     <div class="checks"><label><input type="checkbox" id="cbPulse"> pulse train <kbd>P</kbd></label></div>
   </section>
+  <section id="volleySec" hidden>
+    <h3>Volley · NEURON playback</h3>
+    <div class="hint">Action potentials simulated in NEURON (notebooks/block_volley.ipynb), replayed in slow motion.
+      Every fibre that fires is drawn as a string in its fascicle's colour and each AP as a bump running along it
+      (the height is only a drawing; the timing is NEURON's). <i>dots</i> shows the nodes of Ranvier instead.</div>
+    <label class="line">Run <select id="selVolley"></select><span></span></label>
+    <label class="line">Style <select id="selVStyle">
+      <option value="string">wave · string</option>
+      <option value="ripple">wave · ripple</option>
+      <option value="dots">nodes · dots</option>
+    </select><span></span></label>
+    <label class="line" title="colour of the travelling APs (neon colours stand out at full length)">Colour <select id="selVColour">
+      <option value="cyan">neon · cyan</option>
+      <option value="magenta">neon · magenta</option>
+      <option value="lime">neon · lime</option>
+      <option value="yellow">neon · yellow</option>
+      <option value="fascicle">fascicle colours</option>
+    </select><span></span></label>
+    <label class="line" title="height of the drawn wave (illustration only; scaled with the length shown)">Height <input id="rVH" type="range" min="0" max="1.5" step="0.01" value="0.6"><span class="val" id="vVH"></span></label>
+    <label class="line" title="brightness of the AP glow (core + halo)">Glow <input id="rVG" type="range" min="0" max="3" step="0.05" value="1"><span class="val" id="vVG"></span></label>
+    <label class="line" title="size of the bright core around each AP crest [screen pixels]">Core <input id="rVC" type="range" min="0" max="30" step="1" value="9"><span class="val" id="vVC"></span></label>
+    <label class="line" title="size of the soft halo around each AP crest [screen pixels]">Halo <input id="rVHa" type="range" min="0" max="100" step="1" value="30"><span class="val" id="vVHa"></span></label>
+    <button id="btnVPlay">▶ Play <kbd>V</kbd></button>
+    <label class="line">Time <input id="rVT" type="range" min="0" max="1000" step="1" value="0"><span class="val" id="vVT"></span></label>
+    <label class="line" title="nerve time per second of screen time">Speed <input id="rVS" type="range" min="0" max="1" step="0.01" value="0.5"><span class="val" id="vVS"></span></label>
+    <div class="checks">
+      <label><input type="checkbox" id="cbVShow"> show</label>
+      <label title="draw every fibre line faintly"><input type="checkbox" id="cbVQuiet" checked> all fibres</label>
+      <label title="only the fibres of the target fascicle"><input type="checkbox" id="cbVTarget"> target only</label>
+    </div>
+    <div class="hint" id="volleyInfo"></div>
+  </section>
   <section>
     <h3>Dissection</h3>
     <div class="seg" id="segCut">
@@ -171,6 +211,8 @@
   <div class="ticks" id="cbTicks"></div>
 </div>
 
+<div id="volleyChart" class="glass"><canvas id="vcCanvas"></canvas></div>
+
 <div id="tooltip" class="glass"></div>
 <button id="helpBtn" class="glass">? keys</button>
 <div id="help" class="glass">
@@ -188,6 +230,7 @@
     <tr><td><kbd>↑</kbd> <kbd>↓</kbd></td><td>move the cut</td></tr>
     <tr><td><kbd>F</kbd></td><td>flip the side that is cut away</td></tr>
     <tr><td><kbd>P</kbd> <kbd>M</kbd> <kbd>L</kbd> <kbd>R</kbd></td><td>pulse train, colours, full length, reset view</td></tr>
+    <tr><td><kbd>V</kbd></td><td>volley playback: play / pause (when NEURON runs are exported)</td></tr>
   </table>
   <div class="hint">Fields are computed once (quasi-static, linear): changing the current only rescales the colour bar.
     A pattern is the sum of the single-contact potentials weighted by their currents (superposition); its |E|
@@ -216,9 +259,13 @@
 /* ======================================================================================
    Data loading. The exported files call NV.setModel(...) and NV.addField(...).
    ====================================================================================== */
-const NV = { model: null, fields: {} };
+const NV = { model: null, fields: {}, volleys: {}, volleyIndex: [] };
 NV.setModel = (m) => { NV.model = m; };
 NV.addField = (f) => { NV.fields[f.id] = f; };
+// Volley playback files (src/block/volley.py export_viewer_volley): volleys.js lists the runs,
+// each volley_<name>.js calls NV.addVolley
+NV.setVolleyIndex = (names) => { NV.volleyIndex = names; };
+NV.addVolley = (v) => { NV.volleys[v.name] = v; };
 
 const urlParams = new URLSearchParams(location.search);
 const PATIENT = urlParams.get('patient') || 'UA01';
@@ -377,6 +424,10 @@ const texCache = {};                      // `${id}:${q}` -> Data3DTexture
   if (P('z') !== null) state.cutZ = Number(P('z'));
   if (P('flip') === '1') state.flip = true;
   if (P('full') === '1') { state.fullLength = true; $('cbFull').checked = true; buildRingsAndLabels(); resetView(); }
+  if (P('hide')) {                                          // e.g. ?hide=nerve,fascicles,cuff,leads,labels
+    const cb = { nerve: 'cbNerve', fascicles: 'cbFasc', cuff: 'cbCuff', leads: 'cbLeads', contacts: 'cbCont', labels: 'cbLabels' };
+    P('hide').split(',').forEach((k) => { if (cb[k]) { state.show[k] = false; $(cb[k]).checked = false; } });
+  }
   await selectSite(first);
   setCut(['transverse', 'longitudinal'].includes(P('cut')) ? P('cut') : 'none');
   if (P('angle') !== null) state.cutAngle = Number(P('angle'));
@@ -392,6 +443,7 @@ const texCache = {};                      // `${id}:${q}` -> Data3DTexture
   }
   resetView();
   updateAll();
+  await initVolleys();        // optional: NEURON runs exported for playback (?volley=<name>&vt=<ms>&vplay=1)
   renderer.setAnimationLoop(animate);
 })();
 
@@ -1394,6 +1446,7 @@ function setFullLength(on) {
   state.fullLength = on;
   $('cbFull').checked = on;
   buildRingsAndLabels();
+  if (VOL.cur) { buildVolleyBase(); buildVolleyWave(); drawVolleyFrame(); }   // drawn over the shown length only
   resetView();
   updateAll();
 }
@@ -1423,6 +1476,7 @@ function onKey(e) {
   else if (k === 'm') { state.cmap = state.cmap === 'turbo' ? 'inferno' : 'turbo'; updateAll(); }
   else if (k === 'l') setFullLength(!state.fullLength);
   else if (k === 'r') resetView();
+  else if (k === 'v' && VOL.cur) toggleVolleyPlay();
   else if (k === '?') toggleHelp();
   else if (k === 'arrowup' || k === 'arrowdown') {
     const s = k === 'arrowup' ? 1 : -1;
@@ -1588,6 +1642,487 @@ function updateColorbar() {
 }
 
 /* ======================================================================================
+   Volley playback. The action potentials (APs) of a NEURON run (notebooks/block_volley.ipynb,
+   exported by src/block/volley.py export_viewer_volley) are replayed in slow motion: every node of
+   Ranvier of every fibre is a dot that glows in its fascicle's colour when an AP crosses it and fades
+   with VOL_TAU. The chart shows the volley of each fascicle along the nerve (fraction of its fibres
+   with an AP at each node, same definition as the notebook) and the stimulator currents in time.
+   Nothing is simulated here: the browser only replays the recorded AP times.
+   ====================================================================================== */
+const VOL = { list: [], cur: null, group: null, points: null, base: null, playing: false, t: 0,
+  speed: 0.5, show: false, quiet: true, targetOnly: false, prof: null,
+  style: 'string', height: 0.6, wave: null,        // wave: string / ripple drawing of the active fibres
+  colour: 'cyan',                                   // neon colour of the APs, or 'fascicle'
+  glow: 1, corePx: 9, haloPx: 30 };                 // glow brightness and sprite sizes (panel sliders)
+// Neon colours of the travelling APs: the crest goes towards white (a "hot" core) and has a halo in screen
+// pixels, so it stays visible when the whole nerve length is on screen.
+const NEON = { cyan: [0.0, 1.0, 1.0], magenta: [1.0, 0.1, 0.9], lime: [0.4, 1.0, 0.1], yellow: [1.0, 0.95, 0.1] };
+// Shape of the drawn AP in time at one node: a compact bump (crest WAVE_CREST after the 0 mV crossing,
+// slightly faster rise than fall). It travels along the fibre with the recorded crossing times, so its
+// length on screen is CV x duration (~3-4 mm at 50 m/s). Ripple: an oscillation under a wider envelope.
+const WAVE_CREST = 0.04;    // [ms] crest after the crossing
+const WAVE_SIG_UP = 0.018;  // [ms] rise (Gaussian sigma before the crest)
+const WAVE_SIG_DN = 0.03;   // [ms] fall (after the crest)
+const WAVE_RIPPLE_T = 0.07; // [ms] period of the ripple style (~3.5 mm wavelength at 50 m/s)
+const WAVE_SUB = 6;         // drawn points per internode (Catmull-Rom between the nodes)
+const VOL_TAU = 0.08;       // [ms] fade of the glow after an AP crosses a node
+const VOL_WINDOW = 0.1;     // [ms] an AP counts as "at a node" for this long (VOLLEY_WINDOW_s of the notebook)
+let volSprite = null;
+
+async function initVolleys() {
+  try { await loadScript(DATA_DIR + 'volleys.js'); } catch (e) { return; }   // nothing exported: no playback
+  for (const n of NV.volleyIndex || []) {
+    try { await loadScript(DATA_DIR + `volley_${n}.js`); } catch (e) { console.warn(`volley ${n}: ${e.message}`); }
+  }
+  VOL.list = Object.keys(NV.volleys);
+  if (!VOL.list.length) return;
+  $('volleySec').hidden = false;
+  const sel = $('selVolley');
+  VOL.list.forEach((n) => {
+    const o = document.createElement('option');
+    o.value = n;
+    o.textContent = NV.volleys[n].title || n;
+    sel.appendChild(o);
+  });
+  sel.addEventListener('change', () => selectVolley(sel.value));
+  $('btnVPlay').addEventListener('click', () => toggleVolleyPlay());
+  $('cbVShow').addEventListener('change', () => showVolley($('cbVShow').checked));
+  $('cbVQuiet').addEventListener('change', () => { VOL.quiet = $('cbVQuiet').checked; buildVolleyBase(); drawVolleyFrame(); });
+  $('cbVTarget').addEventListener('change', () => {
+    VOL.targetOnly = $('cbVTarget').checked; buildVolleyBase(); buildVolleyWave(); drawVolleyFrame();
+  });
+  $('selVStyle').addEventListener('change', () => { VOL.style = $('selVStyle').value; buildVolleyWave(); drawVolleyFrame(); });
+  $('rVH').addEventListener('input', () => { VOL.height = +$('rVH').value; drawVolleyFrame(); });
+  $('selVColour').addEventListener('change', () => { VOL.colour = $('selVColour').value; drawVolleyFrame(); });
+  const glowCtl = [['rVG', 'glow', 'vglow'], ['rVC', 'corePx', 'vcore'], ['rVHa', 'haloPx', 'vhalo']];
+  for (const [id, key, url] of glowCtl) {
+    if (urlParams.has(url) && Number.isFinite(+urlParams.get(url))) { VOL[key] = +urlParams.get(url); $(id).value = VOL[key]; }
+    $(id).addEventListener('input', () => { VOL[key] = +$(id).value; applyGlowSizes(); drawVolleyFrame(); });
+  }
+  if (['string', 'ripple', 'dots'].includes(urlParams.get('vstyle'))) { VOL.style = urlParams.get('vstyle'); $('selVStyle').value = VOL.style; }
+  if ([...Object.keys(NEON), 'fascicle'].includes(urlParams.get('vcol'))) { VOL.colour = urlParams.get('vcol'); $('selVColour').value = VOL.colour; }
+  $('rVT').addEventListener('input', () => {
+    const v = VOL.cur;
+    VOL.t = v.tStart + (+$('rVT').value / 1000) * (v.tEnd - v.tStart);
+    drawVolleyFrame();
+  });
+  $('rVS').addEventListener('input', () => { VOL.speed = +$('rVS').value; updateVolleyPanel(); });
+  VOL.group = new THREE.Group();
+  VOL.group.visible = false;
+  model.add(VOL.group);
+  const asked = urlParams.get('volley');
+  selectVolley(VOL.list.includes(asked) ? asked : VOL.list[0]);
+  if (asked !== null) showVolley(true);
+  if (urlParams.get('vt') !== null) { VOL.t = Number(urlParams.get('vt')); drawVolleyFrame(); }
+  if (urlParams.get('vplay') === '1') toggleVolleyPlay(true);
+}
+
+// nerve time per second of screen time [ms/s]: slider 0..1 -> 0.02 ... 2 ms/s (log)
+function volleySpeed() { return 0.02 * Math.pow(10, 2 * VOL.speed); }
+
+function fascRGB(k) {
+  const f = M.fascicles[k - 1];
+  const c = new THREE.Color(f && f.colour ? f.colour : FASC_COLOURS[(k - 1) % FASC_COLOURS.length]);
+  return [c.r, c.g, c.b];
+}
+
+// Index the AP events once per run: for every (fibre, node) the sorted crossing times (CSR layout),
+// the first arrival at the two detection nodes, the fascicles and the time range of the playback.
+function prepVolley(v) {
+  if (v.prep) return v.prep;
+  const nF = v.fibres.x.length, nN = v.z_nodes.length, E = v.events, nE = E.f.length;
+  const cnt = new Int32Array(nF * nN + 1);
+  for (let e = 0; e < nE; e++) cnt[E.f[e] * nN + E.n[e] + 1]++;
+  for (let i = 1; i < cnt.length; i++) cnt[i] += cnt[i - 1];
+  const times = new Float32Array(nE), fill = cnt.slice(0, nF * nN);
+  for (let e = 0; e < nE; e++) times[fill[E.f[e] * nN + E.n[e]]++] = E.t[e];
+  for (let k = 0; k < nF * nN; k++) {
+    if (cnt[k + 1] - cnt[k] > 1) times.set(Array.from(times.subarray(cnt[k], cnt[k + 1])).sort((a, b) => a - b), cnt[k]);
+  }
+  const first = (f, n) => (cnt[f * nN + n + 1] > cnt[f * nN + n] ? times[cnt[f * nN + n]] : Infinity);
+  const brainT = new Float32Array(nF), muscleT = new Float32Array(nF), active = new Uint8Array(nF);
+  for (let f = 0; f < nF; f++) { brainT[f] = first(f, v.node_brain); muscleT[f] = first(f, v.node_muscle); }
+  for (let e = 0; e < nE; e++) active[E.f[e]] = 1;
+  const fas = v.fibres.fascicle, fasList = [...new Set(fas)].sort((a, b) => a - b);
+  const nPer = {}, recruited = {};
+  fasList.forEach((k) => { nPer[k] = 0; recruited[k] = 0; });
+  for (let f = 0; f < nF; f++) { nPer[fas[f]]++; if (active[f]) recruited[fas[f]]++; }
+  let t0 = Infinity, t1 = -Infinity;
+  for (let e = 0; e < nE; e++) { if (E.t[e] < t0) t0 = E.t[e]; if (E.t[e] > t1) t1 = E.t[e]; }
+  v.channels.forEach((c) => c.pulses.forEach(([on, off]) => { t0 = Math.min(t0, on); t1 = Math.max(t1, off); }));
+  if (!Number.isFinite(t0)) { t0 = 0; t1 = 1; }
+  v.tStart = t0 - 0.1;
+  v.tEnd = t1 + 0.3;
+  const yMax = Math.max(0.15, 1.1 * Math.max(...fasList.map((k) => recruited[k] / nPer[k])));
+  const rgb = {};
+  fasList.forEach((k) => { rgb[k] = fascRGB(k); });
+  v.prep = { nF, nN, cnt, times, brainT, muscleT, active, fasList, nPer, recruited, yMax, rgb };
+  return v.prep;
+}
+
+function volleyPointMaterial() {
+  if (!volSprite) {                          // soft round dot
+    const c = document.createElement('canvas');
+    c.width = c.height = 64;
+    const g = c.getContext('2d'), grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, 'rgba(255,255,255,1)');
+    grd.addColorStop(0.35, 'rgba(255,255,255,0.65)');
+    grd.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 64, 64);
+    volSprite = new THREE.CanvasTexture(c);
+  }
+  return new THREE.PointsMaterial({ size: 0.22, sizeAttenuation: true, map: volSprite, vertexColors: true,
+    transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+}
+
+// glow of the wave crests: constant size in screen pixels (visible at any zoom), drawn over everything
+function glowMaterial(px) {
+  const m = volleyPointMaterial();
+  m.size = px * (window.devicePixelRatio || 1);
+  m.sizeAttenuation = false;
+  m.depthTest = false;
+  return m;
+}
+
+// glow sliders: sprite sizes in screen pixels (0 hides that layer)
+function applyGlowSizes() {
+  const W = VOL.wave, dpr = window.devicePixelRatio || 1;
+  if (!W) return;
+  W.glow.material.size = VOL.corePx * dpr; W.glow.visible = VOL.corePx > 0;
+  W.halo.material.size = VOL.haloPx * dpr; W.halo.visible = VOL.haloPx > 0;
+}
+
+// colour of the AP at fibre f: neon (one colour for all) or the colour of its fascicle
+function apColour(v, f) {
+  return VOL.colour === 'fascicle' ? v.prep.rgb[v.fibres.fascicle[f]] : NEON[VOL.colour];
+}
+
+// height of the wave in mm: the slider value at the default zone, scaled with the length shown
+function waveHeight() { return VOL.height * Math.max(1, viewHalf() / VIEW_HALF_ZONE); }
+
+function selectVolley(name) {
+  const v = NV.volleys[name], P = prepVolley(v);
+  VOL.cur = v;
+  $('selVolley').value = name;
+  VOL.t = v.tStart;
+  if (VOL.points) { VOL.group.remove(VOL.points); VOL.points.geometry.dispose(); }
+  const pos = new Float32Array(P.nF * P.nN * 3);
+  for (let f = 0; f < P.nF; f++) {
+    for (let n = 0; n < P.nN; n++) {
+      const i = 3 * (f * P.nN + n);
+      pos[i] = v.fibres.x[f]; pos[i + 1] = v.fibres.y[f]; pos[i + 2] = v.z_nodes[n];
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(new Float32Array(P.nF * P.nN * 3), 3).setUsage(THREE.DynamicDrawUsage));
+  VOL.points = new THREE.Points(g, volleyPointMaterial());
+  VOL.points.frustumCulled = false;
+  VOL.group.add(VOL.points);
+  buildVolleyBase();
+  buildVolleyWave();
+  drawVolleyFrame();
+}
+
+// Wave drawing: one line per fibre that fires (string / ripple styles). The line is sampled WAVE_SUB times
+// per internode over the length shown; its displacement at the nodes comes from the AP crossing times and
+// is interpolated between nodes with Catmull-Rom weights (precomputed here), so the bump moves smoothly.
+function buildVolleyWave() {
+  const v = VOL.cur;
+  if (!v) return;
+  if (VOL.wave) {
+    for (const o of [VOL.wave.line, VOL.wave.glow, VOL.wave.halo]) { VOL.group.remove(o); o.geometry.dispose(); }
+    VOL.wave = null;
+  }
+  if (VOL.points) VOL.points.visible = VOL.style === 'dots';
+  if (VOL.style === 'dots') return;
+  const P = v.prep, half = viewHalf(), zN = v.z_nodes;
+  const fibres = [];
+  for (let f = 0; f < P.nF; f++) {
+    if (!P.active[f]) continue;
+    if (VOL.targetOnly && v.target != null && v.fibres.fascicle[f] !== v.target) continue;
+    fibres.push(f);
+  }
+  let n0 = 0, n1 = P.nN - 1;                                  // nodes inside the shown length
+  while (n0 < n1 && zN[n0] < -half) n0++;
+  while (n1 > n0 && zN[n1] > half) n1--;
+  if (n1 - n0 < 2 || !fibres.length) return;                 // nothing to draw
+  const nS = (n1 - n0) * WAVE_SUB + 1;                        // samples per fibre
+  const ix = new Int32Array(4 * nS), w = new Float32Array(4 * nS), zf = new Float32Array(nS);
+  for (let j = 0; j < nS; j++) {
+    const i = Math.min(n0 + Math.floor(j / WAVE_SUB), n1 - 1), u = j === nS - 1 ? 1 : (j % WAVE_SUB) / WAVE_SUB;
+    const ids = [i - 1, i, i + 1, i + 2].map((k) => Math.min(Math.max(k, n0), n1));
+    const u2 = u * u, u3 = u2 * u;                            // Catmull-Rom basis
+    const ws = [(-u3 + 2 * u2 - u) / 2, (3 * u3 - 5 * u2 + 2) / 2, (-3 * u3 + 4 * u2 + u) / 2, (u3 - u2) / 2];
+    for (let q = 0; q < 4; q++) { ix[4 * j + q] = ids[q]; w[4 * j + q] = ws[q]; }
+    zf[j] = zN[i] + u * (zN[i + 1] - zN[i]);
+  }
+  const nV = fibres.length * nS;
+  const pos = new THREE.BufferAttribute(new Float32Array(3 * nV), 3).setUsage(THREE.DynamicDrawUsage);
+  const col = new THREE.BufferAttribute(new Float32Array(3 * nV), 3).setUsage(THREE.DynamicDrawUsage);
+  const colG = new THREE.BufferAttribute(new Float32Array(3 * nV), 3).setUsage(THREE.DynamicDrawUsage);
+  const colH = new THREE.BufferAttribute(new Float32Array(3 * nV), 3).setUsage(THREE.DynamicDrawUsage);
+  const index = [];
+  fibres.forEach((f, a) => { for (let j = 0; j < nS - 1; j++) index.push(a * nS + j, a * nS + j + 1); });
+  // displacement direction: away from the nerve axis (radial), so the fibres swell outwards like plucked strings
+  const dir = fibres.map((f) => {
+    const x = v.fibres.x[f], y = v.fibres.y[f], r = Math.hypot(x, y);
+    return r > 0.05 ? [x / r, y / r] : [0, 1];
+  });
+  const gl = new THREE.BufferGeometry();
+  gl.setAttribute('position', pos); gl.setAttribute('color', col); gl.setIndex(index);
+  const gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', pos); gg.setAttribute('color', colG);
+  // drawn on top of the glass shells (no depth test): it is an overlay for the eye, not a solid object
+  const line = new THREE.LineSegments(gl, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false, depthTest: false }));
+  const gh = new THREE.BufferGeometry();
+  gh.setAttribute('position', pos); gh.setAttribute('color', colH);
+  const glow = new THREE.Points(gg, glowMaterial(VOL.corePx));      // bright core of the crest
+  const halo = new THREE.Points(gh, glowMaterial(VOL.haloPx));      // wide soft neon halo around it
+  line.renderOrder = 10; halo.renderOrder = 11; glow.renderOrder = 12;
+  line.frustumCulled = glow.frustumCulled = halo.frustumCulled = false;
+  VOL.group.add(line); VOL.group.add(halo); VOL.group.add(glow);
+  VOL.wave = { fibres, n0, n1, nS, ix, w, zf, dir, pos, col, colG, colH, line, glow, halo,
+    nodeD: new Float32Array(P.nN), nodeG: new Float32Array(P.nN) };
+}
+
+// displacement (string: the bump; ripple: an oscillation under it) and glow of one node at time t [ms]
+function waveNodeValues(P, f, t, nodeD, nodeG) {
+  for (let n = 0; n < P.nN; n++) {
+    const idx = f * P.nN + n;
+    let d = 0, g = 0;
+    for (let j = P.cnt[idx]; j < P.cnt[idx + 1]; j++) {
+      const tau = t - P.times[j] - WAVE_CREST;                // time from the crest at this node
+      if (tau < -4 * WAVE_SIG_UP - WAVE_CREST) break;         // times are sorted: later APs not yet here
+      if (tau > 8 * WAVE_SIG_DN) continue;                    // long gone
+      const sg = tau < 0 ? WAVE_SIG_UP : WAVE_SIG_DN, env = Math.exp(-0.5 * (tau / sg) * (tau / sg));
+      g += env;
+      if (VOL.style === 'ripple') {                           // a few oscillations under a 2.5x wider envelope
+        const sr = 2.5 * sg;
+        d += Math.exp(-0.5 * (tau / sr) * (tau / sr)) * Math.cos(2 * Math.PI * tau / WAVE_RIPPLE_T);
+      } else d += env;
+    }
+    nodeD[n] = d; nodeG[n] = Math.min(g, 1.5);
+  }
+}
+
+function drawVolleyWave() {
+  const v = VOL.cur, W = VOL.wave;
+  if (!v || !W) return;
+  const P = v.prep, t = VOL.t, H = waveHeight();
+  const pos = W.pos.array, col = W.col.array, colG = W.colG.array, colH = W.colH.array;
+  const neon = VOL.colour !== 'fascicle';
+  W.fibres.forEach((f, a) => {
+    waveNodeValues(P, f, t, W.nodeD, W.nodeG);
+    const x0 = v.fibres.x[f], y0 = v.fibres.y[f], [dx, dy] = W.dir[a], c = apColour(v, f);
+    for (let j = 0; j < W.nS; j++) {
+      let d = 0, g = 0;
+      for (let q = 0; q < 4; q++) { const n = W.ix[4 * j + q], wq = W.w[4 * j + q]; d += wq * W.nodeD[n]; g += wq * W.nodeG[n]; }
+      g = Math.max(g, 0);
+      const k = 3 * (a * W.nS + j);
+      pos[k] = x0 + dx * H * d; pos[k + 1] = y0 + dy * H * d; pos[k + 2] = W.zf[j];
+      // the string is faintly lit, the crest glows; neon: dimmer string and a white-hot core at the crest
+      const G = VOL.glow;                                    // Glow slider
+      const b = (neon ? 0.05 : 0.12) + 1.6 * g * Math.min(G, 1.5), hot = neon ? G * Math.max(0, g - 0.5) : 0;
+      for (let ch = 0; ch < 3; ch++) {
+        col[k + ch] = c[ch] * b + hot;
+        colG[k + ch] = G * (1.8 * c[ch] * g) + 1.2 * hot;    // core sprite
+        colH[k + ch] = G * 0.35 * c[ch] * g;                   // halo sprite
+      }
+    }
+  });
+  W.pos.needsUpdate = true; W.col.needsUpdate = true; W.colG.needsUpdate = true; W.colH.needsUpdate = true;
+}
+
+// faint straight line for every fibre (over the length shown), brighter for the fibres that fire
+function buildVolleyBase() {
+  if (!VOL.cur) return;
+  if (VOL.base) { VOL.group.remove(VOL.base); VOL.base.geometry.dispose(); VOL.base = null; }
+  if (!VOL.quiet) return;
+  const v = VOL.cur, P = v.prep, half = viewHalf();
+  const z0 = Math.max(v.z_nodes[0], -half), z1 = Math.min(v.z_nodes[P.nN - 1], half);
+  const pos = [], col = [];
+  for (let f = 0; f < P.nF; f++) {
+    const k = v.fibres.fascicle[f];
+    if (VOL.targetOnly && v.target != null && k !== v.target) continue;
+    const c = P.rgb[k], w = P.active[f] ? 0.06 : 0.012;     // additive: hundreds of lines overlap in the view
+    pos.push(v.fibres.x[f], v.fibres.y[f], z0, v.fibres.x[f], v.fibres.y[f], z1);
+    col.push(c[0] * w, c[1] * w, c[2] * w, c[0] * w, c[1] * w, c[2] * w);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+  VOL.base = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ vertexColors: true, transparent: true,
+    blending: THREE.AdditiveBlending, depthWrite: false }));
+  VOL.base.frustumCulled = false;
+  VOL.group.add(VOL.base);
+}
+
+function showVolley(on) {
+  VOL.show = on;
+  $('cbVShow').checked = on;
+  VOL.group.visible = on;
+  $('volleyChart').style.display = on ? 'block' : 'none';
+  if (on) drawVolleyFrame();
+}
+
+function toggleVolleyPlay(force) {
+  if (!VOL.cur) return;
+  VOL.playing = force === undefined ? !VOL.playing : force;
+  if (VOL.playing && !VOL.show) showVolley(true);
+  if (VOL.playing && VOL.t >= VOL.cur.tEnd) VOL.t = VOL.cur.tStart;
+  updateVolleyPanel();
+}
+
+// colours of the dots at time VOL.t, and the volley profile of every fascicle for the chart
+function drawVolleyFrame() {
+  const v = VOL.cur;
+  if (!v || !VOL.points) return;
+  const P = v.prep, t = VOL.t, half = viewHalf();
+  const col = VOL.points.geometry.attributes.color.array;
+  const prof = {};
+  P.fasList.forEach((k) => { prof[k] = new Float32Array(P.nN); });
+  for (let f = 0; f < P.nF; f++) {
+    const k = v.fibres.fascicle[f], c = apColour(v, f);
+    const hide = VOL.targetOnly && v.target != null && k !== v.target;
+    for (let n = 0; n < P.nN; n++) {
+      const idx = f * P.nN + n;
+      let a = 0;
+      if (P.active[f]) {
+        for (let j = P.cnt[idx]; j < P.cnt[idx + 1]; j++) {
+          const d = t - P.times[j];
+          if (d < 0) break;                                   // times are sorted
+          a = Math.max(a, Math.exp(-d / VOL_TAU));
+          if (d < VOL_WINDOW) prof[k][n] += 1;
+        }
+      }
+      if (hide || Math.abs(v.z_nodes[n]) > half) a = 0;
+      col[3 * idx] = 1.5 * c[0] * a; col[3 * idx + 1] = 1.5 * c[1] * a; col[3 * idx + 2] = 1.5 * c[2] * a;
+    }
+  }
+  VOL.points.geometry.attributes.color.needsUpdate = true;
+  if (VOL.style !== 'dots') drawVolleyWave();
+  P.fasList.forEach((k) => { for (let n = 0; n < P.nN; n++) prof[k][n] /= P.nPer[k]; });
+  VOL.prof = prof;
+  if (VOL.show) drawVolleyChart();
+  updateVolleyPanel();
+}
+
+function updateVolleyPanel() {
+  const v = VOL.cur;
+  if (!v) return;
+  const P = v.prep, t = VOL.t;
+  $('rVT').value = String(Math.round(1000 * (t - v.tStart) / (v.tEnd - v.tStart)));
+  $('vVT').textContent = `${t >= 0 ? '+' : ''}${t.toFixed(2)} ms`;
+  const s = volleySpeed();
+  $('vVS').textContent = `${s < 0.1 ? s.toFixed(3) : s.toFixed(2)} ms/s`;
+  $('vVH').textContent = `${waveHeight().toFixed(2)} mm`;
+  $('vVG').textContent = `${VOL.glow.toFixed(2)}×`;
+  $('vVC').textContent = `${VOL.corePx} px`;
+  $('vVHa').textContent = `${VOL.haloPx} px`;
+  $('btnVPlay').innerHTML = VOL.playing ? '❚❚ Pause <kbd>V</kbd>' : '▶ Play <kbd>V</kbd>';
+  $('btnVPlay').classList.toggle('on', VOL.playing);
+  // APs delivered so far to the two ends of the fibres, per fascicle (fibres with >= 1 AP there)
+  const rows = [];
+  P.fasList.forEach((k) => {
+    let nb = 0, nm = 0, nbEnd = 0, nmEnd = 0;
+    for (let f = 0; f < P.nF; f++) {
+      if (v.fibres.fascicle[f] !== k) continue;
+      if (P.brainT[f] <= t) nb++;
+      if (P.muscleT[f] <= t) nm++;
+      if (Number.isFinite(P.brainT[f])) nbEnd++;
+      if (Number.isFinite(P.muscleT[f])) nmEnd++;
+    }
+    if (!nbEnd && !nmEnd && !P.recruited[k]) return;          // fascicles that never fire: not listed
+    const pc = (x) => `${Math.round(100 * x / P.nPer[k])}%`;
+    rows.push(`<tr><td>F${k}${k === v.target ? '★' : ''}</td><td>brain ${nb} (${pc(nb)})</td>` +
+      `<td class="${nm / P.nPer[k] >= 0.1 ? 'hi' : ''}">muscle ${nm} (${pc(nm)})</td><td>of ${P.nPer[k]}</td></tr>`);
+  });
+  $('volleyInfo').innerHTML = (v.note ? `${v.note}<br>` : '') +
+    'Fibres that delivered an AP so far (★ target; orange = 10 % or more reached the muscle):' +
+    `<table>${rows.join('') || '<tr><td>no fibre fires in this run</td></tr>'}</table>`;
+}
+
+function drawVolleyChart() {
+  const v = VOL.cur, P = v.prep, cv = $('vcCanvas');
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  g.font = '10px system-ui, sans-serif';
+  const L = 34, R = W - 8, T1 = 16, B1 = 140, T2 = 166, B2 = H - 14;   // two plots: volley (top), currents (bottom)
+  const zA = v.z_nodes[0], zB = v.z_nodes[P.nN - 1];
+  const X = (z) => L + (z - zA) / (zB - zA) * (R - L);
+  const Y = (y) => B1 - y / P.yMax * (B1 - T1);
+  // top: volley along the nerve
+  g.fillStyle = '#d8e6f0';
+  g.fillText(`${v.title}   ·   t = ${VOL.t >= 0 ? '+' : ''}${VOL.t.toFixed(2)} ms`, L, 10);
+  g.strokeStyle = 'rgba(255,255,255,0.25)';
+  g.lineWidth = 1;
+  g.beginPath(); g.moveTo(L, T1); g.lineTo(L, B1); g.lineTo(R, B1); g.stroke();
+  g.fillStyle = '#7d8fa0';
+  [0, P.yMax / 2, P.yMax].forEach((y) => g.fillText(`${Math.round(100 * y)}%`, 2, Y(y) + 3));
+  g.setLineDash([3, 3]);
+  g.strokeStyle = 'rgba(255,255,255,0.35)';
+  g.beginPath(); g.moveTo(L, Y(0.1)); g.lineTo(R, Y(0.1)); g.stroke();
+  (v.z_sites || []).forEach((z, i) => {
+    g.strokeStyle = 'rgba(160,190,210,0.5)';
+    g.beginPath(); g.moveTo(X(z), T1); g.lineTo(X(z), B1); g.stroke();
+    g.fillText(i === 0 ? 'proximal site' : 'distal site', X(z) + 3, T1 + 8);
+  });
+  g.setLineDash([]);
+  g.fillStyle = '#7d8fa0';
+  g.fillText('brain ←', L + 2, B1 + 11);
+  g.fillText('→ muscle', R - 46, B1 + 11);
+  g.fillText('z along the nerve; fraction of each fascicle with an AP', L + 70, B1 + 11);
+  P.fasList.forEach((k) => {
+    const p = VOL.prof[k];
+    if (!P.recruited[k]) return;
+    const c = P.rgb[k];
+    g.strokeStyle = `rgb(${Math.round(255 * c[0])},${Math.round(255 * c[1])},${Math.round(255 * c[2])})`;
+    g.lineWidth = k === v.target ? 2.2 : 1.2;
+    g.beginPath();
+    for (let n = 0; n < P.nN; n++) { const x = X(v.z_nodes[n]), y = Y(Math.min(p[n], P.yMax)); if (n) g.lineTo(x, y); else g.moveTo(x, y); }
+    g.stroke();
+  });
+  // bottom: stimulator currents in time (each channel normalised to its peak; cathodes down, anodes up)
+  const tA = v.tStart, tB = v.tEnd, Xt = (t) => L + (t - tA) / (tB - tA) * (R - L), Ym = (T2 + B2) / 2;
+  g.strokeStyle = 'rgba(255,255,255,0.25)';
+  g.lineWidth = 1;
+  g.beginPath(); g.moveTo(L, Ym); g.lineTo(R, Ym); g.stroke();
+  let ty = T2 - 4;
+  v.channels.forEach((ch) => {
+    const peak = Math.max(1e-12, ...ch.pulses.map((p) => Math.abs(p[2])));
+    const sgn = ch.kind === 'anode' ? 1 : -1;
+    g.strokeStyle = ch.kind === 'anode' ? '#ff6b4a' : '#4cc9f0';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    const N = 400;
+    for (let i = 0; i <= N; i++) {
+      const t = tA + (i / N) * (tB - tA);
+      let a = 0;
+      ch.pulses.forEach(([on, off, amp]) => { if (t >= on && t < off) a += amp; });
+      const y = Ym - sgn * (a / peak) * (Ym - T2);
+      if (i) g.lineTo(Xt(t), y); else g.moveTo(Xt(t), y);
+    }
+    g.stroke();
+    g.fillStyle = g.strokeStyle;
+    g.fillText(`${ch.name}: ${peak.toFixed(peak < 10 ? 2 : 0)} µA peak`, L + 2 + (ch.kind === 'anode' ? (R - L) / 2 : 0), ty);
+  });
+  g.strokeStyle = '#ffcc55';
+  g.lineWidth = 1.5;
+  g.beginPath(); g.moveTo(Xt(VOL.t), T2); g.lineTo(Xt(VOL.t), B2); g.stroke();
+  g.fillStyle = '#7d8fa0';
+  g.fillText(`${tA.toFixed(1)} ms`, L, H - 2);
+  g.fillText(`${tB.toFixed(1)} ms`, R - 34, H - 2);
+  g.fillText('stimulator currents (cathode ↓, anode ↑)', L + 70, H - 2);
+}
+
+/* ======================================================================================
    Animation loop.
    ====================================================================================== */
 const clock = new THREE.Clock();
@@ -1625,6 +2160,12 @@ function animate() {
       mat.emissiveIntensity = 1;
     }
   });
+
+  if (VOL.playing && VOL.cur) {              // volley playback: advance the nerve clock, loop at the end
+    VOL.t += dt * volleySpeed();
+    if (VOL.t > VOL.cur.tEnd) VOL.t = VOL.cur.tStart;
+    drawVolleyFrame();
+  }
 
   if (focusTarget) {                         // smooth move of the orbit centre (camera follows)
     const step = new THREE.Vector3().subVectors(focusTarget, controls.target);

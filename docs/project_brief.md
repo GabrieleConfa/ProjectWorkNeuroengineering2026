@@ -74,9 +74,16 @@ The project is organised in consecutive phases.
   - can the two sites be driven by independent channels with a delay, and with which pulse widths
     (anodal block needs pulses of the order of 1 ms)?
   - (2026-11-26) the goal of the block: stop only the fibres the proximal site fired (the targeted
-    fascicle), or the whole nerve? It decides the next scheme (`design.md` §5.6, task B1);
+    fascicle), or the whole nerve? **Answered 2026-11-27:** the same contacts on the distal site as
+    an anode; the global activation of the targeted fascicle must stop, some APs may pass (D-16).
+    Still to confirm: is "fewer than 10 % of the fascicle reaches the muscle" an acceptable success
+    level (the 10 % comes from sensory thresholds)?
   - (2026-11-26) the device acts on and observes whole fascicles only: is "fraction of a fascicle's
     fibres recruited / blocked" (10% criterion) the right success measure for the report?
+- **The insulating sleeve (2026-11-27, block study, `block.md` §6 third round).** In the model a tight PDMS
+  sleeve 50 mm long surrounds the nerve; at its ends the current of a distal anode escapes into the muscle and
+  fires every fascicle (from ~42 µA with a 0.8 ms pulse), before any block. Does the real device have such a
+  sleeve? How long, how tight (saline gap?), and where are the contacts relative to its ends?
 - **How the stimulator drives the contacts (2026-11-26, user; decides `design.md` §5.6 A2, B1, B2).**
   It is not known whether single contacts can be addressed. To ask:
   - can each of the 48 contacts be switched on alone, or only groups (a station, a shank, a site, the

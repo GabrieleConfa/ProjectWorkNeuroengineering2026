@@ -117,6 +117,36 @@ With the Gmsh model (D-14) the viewer also draws the irregular fascicles displac
 of each station (*leads* checkbox) and the PDMS sleeve (*cuff / sleeve*); the cut faces show the exact outlines.
 Data exported before 2026-11-26 still open (single contacts, circles), but patterns need a new `export_viewer_data`.
 
+#### Volley playback: the NEURON runs in slow motion (2026-11-27)
+
+When runs of `notebooks/block_volley.ipynb` have been exported (last cell of the notebook, or
+`volley.export_viewer_volley` in `src/block/volley.py`), a **Volley · NEURON playback** section appears in the panel.
+Nothing is simulated in the browser: it replays the action-potential times recorded by NEURON.
+
+- **Run**: one simulated scenario, e.g. the proximal pulse alone, proximal + anode, or the anode alone;
+- **Play** (or <kbd>V</kbd>): every fibre that fires is drawn as a glowing string in its fascicle's colour, and each AP
+  as a bump travelling along it (**Style** *wave · string*), or as an oscillation under a moving envelope
+  (*wave · ripple*, like a wave packet); *nodes · dots* shows instead the nodes of Ranvier lighting up. The bump
+  follows the AP times recorded by NEURON (its length on screen is conduction velocity × AP duration, ~3–4 mm);
+  its **Height** (outwards from the nerve axis) is only a drawing, not a physical quantity, and grows with the length
+  shown so the bump stays visible at full length. **Colour**: neon cyan (default), magenta, lime or yellow, with a
+  white-hot crest and a halo of fixed size on screen (visible at any zoom), or the fascicle colours. **Glow** scales
+  the brightness (0–3×), **Core** and **Halo** the sizes of the bright centre and of the soft halo in screen pixels
+  (0 hides that layer); with many fibres firing, lower Glow or Halo if the crests merge into a white blob. The wave is drawn on
+  top of the glass shells; untick *nerve* and *fascicles* (or open the link with `&hide=nerve,fascicles,cuff,leads`)
+  to see it best. **Time** scrubs, **Speed** sets how much nerve time passes per second (default 0.2 ms/s: the
+  volley crosses the electrode zone in a few seconds);
+- *all fibres* draws every fibre line faintly; *target only* hides the other fascicles; turn the *Stimulate* heatmap
+  off and switch on *full length* (<kbd>L</kbd>) to follow the volley to the fibre ends (the APs are counted 5 mm
+  from each end);
+- the chart (bottom left) shows the **volley of each fascicle along the nerve** (fraction of its fibres with an AP
+  at each node; dotted line = 10 %) and, below, the stimulator currents in time with a cursor; the panel lists
+  how many fibres of each fascicle have delivered an AP to the brain end and to the muscle end so far (orange =
+  10 % or more of the fascicle reached the muscle, criterion C1/C2 of D-16).
+
+Links: `viewer/index.html?volley=<name>&vt=0.3&full=1` opens a run at t = 0.3 ms; add `&vplay=1` to start playing,
+`&vstyle=string|ripple|dots` to choose the style, `&vcol=cyan|magenta|lime|yellow|fascicle` the colour, `&vglow=1.5&vcore=9&vhalo=30` the glow, `&hide=nerve,fascicles,cuff,leads,contacts,labels` to hide parts.
+
 #### Tutorial: a first look in five steps
 
 1. Open `viewer/index.html`, choose **AS 2** in *Contact* and press **Space**. The fascicles light up

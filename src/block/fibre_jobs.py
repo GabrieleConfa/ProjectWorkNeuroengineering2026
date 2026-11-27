@@ -19,9 +19,10 @@ What a "job" is
                             Pulses that overlap in time add up, so a ramp can be written as a
                             staircase of short pulses.
       t_stop_s  simulated time [s]
-    The answer of a job is (n_brain, n_muscle): the number of action potentials (APs) seen at the
-    node detectInset_m from the proximal end of the fibre (z < 0, towards the brain) and at the node
-    detectInset_m from the distal end (z > 0, towards the muscle).
+    The answer of a job (run_job) is (n_brain, n_muscle): the number of action potentials (APs) seen
+    at the node detectInset_m from the proximal end of the fibre (z < 0, towards the brain) and at the
+    node detectInset_m from the distal end (z > 0, towards the muscle). ap_times_job answers with the
+    AP times at every node instead (population/volley analysis, notebooks/block_volley.ipynb).
 
 One fibre object for all fibre lines
     Every process (the notebook's own and each worker) calls setup() once: it loads the FEM profiles
@@ -99,6 +100,39 @@ def run_job(job) -> tuple[int, int]:
     return n_brain, n_muscle
 
 
+def ap_times_job(job) -> list:
+    """job = (i_fibre, drives, t_stop_s)  ->  AP times at EVERY node of the fibre.
+
+    Returns a list with one float32 array per node of Ranvier (node 0 = proximal end, towards the
+    brain): the times [s] of the upward crossings of the AP threshold at that node. This is what the
+    population ("volley") analysis of notebooks/block_volley.ipynb needs: from it one can tell where
+    each AP travelled, where it stopped, and how many APs reached each end. It is small (a few numbers
+    per node), so thousands of runs fit in memory. The counts of run_job are recovered as
+    len(result[node_brain]) and len(result[node_muscle]).
+    """
+    i_fibre, drives, t_stop_s = job
+    _, _, res = simulate(i_fibre, drives, t_stop_s)
+    return [np.asarray(t, dtype=np.float32) for t in res["ap_times_s"]]
+
+
+def profile_ap_times_job(job) -> list:
+    """job = (channels, t_stop_s)  ->  AP times at every node, for potentials given EXPLICITLY.
+
+    channels  list of (z_m, V_perA, pulses): the extracellular potential [V] along the fibre for +1 A,
+              sampled at z_m [m] (any spacing, interpolated to the compartments), and its pulses as in
+              a drive. Not tied to the FEM profiles: used for textbook checks of the fibre model (point
+              electrodes in a homogeneous medium, notebooks/block_model_check.ipynb).
+    The fibre is the shared one of this process (same diameter, length and node positions).
+    """
+    channels, t_stop_s = job
+    m, fibre = _S["mrg"], _S["fibre"]
+    z_ref = np.asarray(channels[0][0], dtype=float)
+    chans = [Channel(np.interp(z_ref, np.asarray(z, float), np.asarray(v, float)), list(p))
+             for z, v, p in channels]
+    res = fibre.run(chans, z_ref, t_stop_s, m["dt_s"], m["vInit_V"], m["apThreshold_V"], False)
+    return [np.asarray(t, dtype=np.float32) for t in res["ap_times_s"]]
+
+
 def threshold_job(job) -> float:
     """Smallest amplitude [A] of one rectangular pulse on `pattern` that fires the fibre.
 
@@ -150,6 +184,14 @@ class FibreRunner:
     def run(self, jobs: list) -> list:
         """Run simulation jobs; returns [(n_brain, n_muscle), ...] in the order of the jobs."""
         return self.map(run_job, jobs, chunksize=4)
+
+    def run_ap_times(self, jobs: list) -> list:
+        """Run simulation jobs; returns the AP times at every node for each job (see ap_times_job)."""
+        return self.map(ap_times_job, jobs, chunksize=4)
+
+    def run_profiles(self, jobs: list) -> list:
+        """Jobs with explicit potentials (see profile_ap_times_job); returns the AP times per node."""
+        return self.map(profile_ap_times_job, jobs, chunksize=2)
 
     def record(self, i_fibre: int, drives: list, t_stop_s: float):
         """One run in the current process with the membrane voltage of every node recorded."""

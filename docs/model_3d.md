@@ -161,7 +161,7 @@ rule is kept as `"pushAside"` for comparison. **Question for the tutor** (in `pr
   ~10¹¹).
 - **Idle contacts insulating** (σ = 1e-7 S/m), as in 2D; `"floating"` is available as an option.
 - **Cuff wall = void**: deleting the cells gives an exact insulator and no elements.
-- **Ground**: outer muscle surface + end planes (option: insulated ends).
+- **Ground**: outer muscle surface; end planes insulated since 2026-11-27 (D-17; grounded before, D-04).
 
 ### 2.6 The oval nerve and the rigid cuff pads (2026-11-22, D-10, D-11)
 
@@ -258,7 +258,7 @@ in the 2D model. Tags in the comments: `[source]` literature / PW6 document, `[g
 | `perineurium.realThickness_m` | 14 µm | PW6 / Horn 2023 → ρ·t = t/σ = 159 Ω·cm² |
 | `domain.nerveLength_m` | 70 mm | |
 | `domain.outerRadiusFactor` | 3 | muscle up to 3R |
-| `domain.lateralBC`, `domain.endBC` | "ground", "ground" | end planes: or "insulated" (D-04) |
+| `domain.lateralBC`, `domain.endBC` | "ground", "insulated" | end planes: "insulated" since D-17 (was "ground", D-04) |
 | `cuff.length_m` | 50 mm | |
 | `cuff.wallThickness_m` | 0.5 mm | **assumed**, ask the tutor |
 | `cuff.fit` | "tight" | documentation only (the code always uses inner radius = R) |
