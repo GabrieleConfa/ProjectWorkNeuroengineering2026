@@ -4,6 +4,12 @@ function patient = virtualPatient(q, seed, scenario, functionSeed) % One reprodu
 % circular layout of config/quicklook3DParams.m with random irregular outlines. Other seeds draw a new layout (repulsion packing
 % with the same constraints: 10 fascicles, 5.01 mm2 in total, 1.49 mm2 the largest) and new shapes. Every virtual patient has
 % the same structure as a measured one (see docs/patient_data.md), so the rest of the model does not know the difference.
+%% Inputs / outputs
+%   q             quicklook parameter struct (config/quicklook3DParams.m): nerve ellipse, circular layout, tPeri_m
+%   seed          virtual-patient number (default 1 = V001); also selects the random layout and shapes
+%   scenario      function hypothesis: "none" (default) | "random" | "forearmRule" | "mrAIN" (see assignFunctions)
+%   functionSeed  seed of the function assignment (default = seed)
+%   patient       patient struct 'V%03d' (coordinates in m), same format as loadPatient
 if nargin<2, seed = 1; end, if nargin<3, scenario = "none"; end, if nargin<4, functionSeed = seed; end
 ip = insertionParams(); g = q.geometry; q2 = q;
 if seed~=1 % New layout for another virtual patient.

@@ -143,6 +143,7 @@ def threshold_job(job) -> float:
     i_fibre, pattern, t_on_s, width_s, t_stop_s, start_A, max_A, rel_tol = job
 
     def fires(amp_A):
+        """True if one pulse of amp_A [A] gives at least one AP at either detection node."""
         return sum(run_job((i_fibre, [(pattern, [(t_on_s, t_on_s + width_s, amp_A)])], t_stop_s))) > 0
 
     lo, hi = 0.0, start_A
@@ -164,7 +165,11 @@ class FibreRunner:
     """
 
     def __init__(self, h5_path, mrg: dict, diam_um: float, z_align_m: float, mech_dir, n_workers: int = 1):
-        args = (str(h5_path), mrg, diam_um, z_align_m, str(mech_dir))
+        """Set up the current process and, if n_workers > 1, a pool of worker processes.
+
+        Arguments as in setup(); n_workers = number of worker processes (1 = run everything here).
+        """
+        args =(str(h5_path), mrg, diam_um, z_align_m, str(mech_dir))
         setup(*args)
         self.n_workers = int(n_workers)
         self.pool = ProcessPoolExecutor(self.n_workers, initializer=setup, initargs=args) \

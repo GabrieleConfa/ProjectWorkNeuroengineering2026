@@ -1,4 +1,9 @@
 function radius_m = nerveBoundaryRadius(p, directions) % Find an elliptical nerve boundary along unit rays.
+% Distance from the nerve centre to the (undeformed, elliptical) nerve surface along each ray: r = 1/sqrt((x'/a)^2 + (y'/b)^2)
+% with (x', y') the ray direction in the frame of the ellipse.
+% Inputs:  p.geometry.nerveSemiAxes_m = [a b] [m], p.geometry.nerveRotation_deg (major axis from +x) [deg];
+%          directions: K x 2 unit vectors.
+% Output:  radius_m: K x 1 distances [m].
 axes_m = p.geometry.nerveSemiAxes_m; % Read the editable transverse semi-axes.
 angle_deg = p.geometry.nerveRotation_deg; % Read the editable rotation of the ellipse.
 assert(numel(axes_m)==2 && all(axes_m>0), 'Nerve semi-axes must be positive.'); % Reject missing anatomical sizes.

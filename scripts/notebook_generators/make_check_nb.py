@@ -8,10 +8,12 @@ cells = []
 
 
 def md(s):
+    """Add a markdown cell (the explanation the notebook reader sees)."""
     cells.append(("markdown", s.strip("\n")))
 
 
 def code(s):
+    """Add a code cell (run by the user in Jupyter)."""
     cells.append(("code", s.strip("\n")))
 
 
@@ -65,6 +67,7 @@ md(r'''
 ''')
 
 code(r'''
+# Imports, project paths, NEURON check, output folder.
 import json, os, sys, time
 from pathlib import Path
 
@@ -147,6 +150,8 @@ written as a staircase of short constant steps (NEURON applies piecewise-constan
 ''')
 
 code(r'''
+# Shared pieces: the MRG fibre of the nerve runs (node under AS 2), pulse helpers (ramp + hold written as
+# a staircase), time of the first AP at a node, and the Shannon charge check on the most loaded contact.
 with h5py.File(H5_PATH, "r") as f:
     CZ = dict(zip(f["contact_id"][:].ravel().astype(int).tolist(), f["contact_z_m"][:].ravel().tolist()))
     fascicle = f["fascicle"][:].ravel().astype(int)
@@ -310,6 +315,8 @@ distance. A clean block is where the solid line is up and the dashed line is dow
 ''')
 
 code(r'''
+# Part A figure: for each polarity and ramp, whether the launched AP was blocked (solid) and whether the
+# DC pulse itself fired the fibre (dashed), against the current factor, one line per electrode distance.
 fig, axs = plt.subplots(2, len(RAMPS_A_s), figsize=(5.5 * len(RAMPS_A_s), 6.5), sharex=True, sharey=True, squeeze=False)
 for i, pol in enumerate(["anode", "cathode"]):
     for j, ramp in enumerate(RAMPS_A_s):
@@ -458,6 +465,8 @@ print(f"done in {time.time()-t0:.0f} s")
 ''')
 
 code(r'''
+# Part C table: per configuration, ramp and current, the residual volley at the muscle, the brain-side
+# volley, the fibres fired by the pattern and the charge; criteria C0 and C1 on the target fascicle.
 fired_t = FIRED[TGT_ALL]
 rowsC = []
 for s, (name, ramp, amp, t_prox) in enumerate(keys):
@@ -487,6 +496,8 @@ configuration alone. A working setting: solid below 10 %, dashed at 0, dotted ne
 ''')
 
 code(r'''
+# Part C figure: residual volley (solid), block ratio (dotted) and fibres fired by the pattern alone
+# (dashed) against the current, one panel per configuration.
 fig, axs = plt.subplots(1, len(C_CONFIGS), figsize=(3.8 * len(C_CONFIGS), 3.6), sharey=True, squeeze=False)
 for ax, name in zip(axs[0], C_CONFIGS):
     g = C_TAB[C_TAB.name == name]
@@ -512,6 +523,7 @@ and with the proximal pulse; pass = C0–C3 (D-16).
 ''')
 
 code(r'''
+# Whole-nerve check (C0-C3) of the best Part C settings.
 SEL = C_TAB[C_TAB.C0 & C_TAB.C1].sort_values("charge_nC").head(N_CHECK)
 if SEL.empty:
     print("no setting meets C0 and C1 on F7: nothing to check on the whole nerve")
@@ -554,6 +566,7 @@ which of these holds.
 ''')
 
 code(r'''
+# Summary of parts A-C written to summary.json and printed.
 summary = {"partA": A_SUM.to_dict(orient="records"), "cv_m_s": CV, "partB": B_TAB.to_dict(orient="records"),
            "partC_best_target": C_TAB[C_TAB.C0 & C_TAB.C1].sort_values("charge_nC").head(5).to_dict(orient="records"),
            "partC_whole_nerve": CHECK.to_dict(orient="records") if len(CHECK) else []}

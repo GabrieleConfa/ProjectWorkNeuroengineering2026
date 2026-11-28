@@ -1,4 +1,13 @@
 function f=midArmLayout(p) % Generate a reproducible synthetic section from histological area targets.
+% Purpose: circular-equivalent fascicle layout of the mid-arm median nerve that matches the two aggregate constraints of the
+% histology (Pusnik 2025, in p.geometry.pw6): the area of the largest fascicle and the total fascicular area.
+%   - if p.geometry.layoutTemplate has one row per fascicle ([x/a y/b relative area], normalised centres): that fixed
+%     reference anatomy, scaled to the nerve semi-axes and rotated with the nerve (used by quicklook3DParams);
+%   - otherwise: random sequential placement with seed p.geometry.layoutSeed (largest first, 700 candidates per
+%     fascicle, clearance 35 um from the surface and 12 um between perinea), restarted up to 250 times.
+% Input  p: parameter struct with p.geometry.{pw6, nerveSemiAxes_m [m], nerveRotation_deg, tPeri_m [m], layoutTemplate or
+%           layoutSeed}.
+% Output f: n x 5, one row per fascicle [x_m y_m a_m b_m angle_deg] (circles: a = b = r, angle 0). Error if packing fails.
 g=p.geometry; spec=g.pw6; n=spec.nFascicles; % Read the shared anatomy targets.
 if isfield(g,'layoutTemplate') && size(g.layoutTemplate,1)==n % Use a repeatable reference anatomy for device comparisons.
     template=g.layoutTemplate; centres=template(:,1:2).*g.nerveSemiAxes_m; % Scale the normalized coordinates with both anatomical axes.

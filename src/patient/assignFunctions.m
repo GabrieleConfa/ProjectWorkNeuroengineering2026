@@ -9,6 +9,15 @@ function patient = assignFunctions(patient, scenario, seed, opts) % Give every f
 %   "mrAIN"       (scenario B) MR neurography: the anterior interosseous group sits in dorsal and lateral fascicles; the other
 %                  groups are random. ASSUMED orientation: +y = dorsal, +x = lateral (radial).
 % Motor fraction of every fascicle: about 13 percent on average (Delgado-Martinez 2016: 14 and 12 percent), drawn from a Beta law.
+%% Inputs / outputs
+%   patient   patient struct (virtualPatient / loadPatient format, coordinates in m; see docs/patient_data.md)
+%   scenario  "random" | "forearmRule" | "mrAIN" (see above)
+%   seed      integer seed of the random stream (the same seed gives the same composition)
+%   opts      optional struct: concentration (Dirichlet, default 3), strength (0..1 of the spatial rules, default 0.8),
+%             motorMean (mean motor fraction, default 0.13)
+%   patient   the same struct with, for every fascicle k: composition (1 x nGroups fractions summing to 1, in the order
+%             of functionCatalog), motorFraction (0..1) and patches (cell of Nx2 outlines [m] of the motor patches);
+%             plus functionScenario, functionSource = 'assumed' and functionIds (the group keys).
 if nargin<4, opts = struct(); end
 if ~isfield(opts,'concentration'), opts.concentration = 3; end % ASSUMED: how strongly the groups are mixed inside a fascicle (small = mixed, large = close to the prior).
 if ~isfield(opts,'strength'), opts.strength = 0.8; end % ASSUMED: strength of the spatial rules A and B (0 = none, 1 = strong).

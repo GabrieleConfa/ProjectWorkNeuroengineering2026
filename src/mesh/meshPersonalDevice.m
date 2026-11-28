@@ -1,4 +1,18 @@
 function [geom,X,T,elemCell]=meshPersonalDevice(p,patient,sites) % Generate shared rigid-pad faces before fitting the local nerve surface.
+%% Purpose
+% 3D mesher of the Gmsh model (default since D-14). MATLAB prepares the geometry in mm (nerve outline flattened by the cuff
+% pads at every transverse profile, irregular fascicles displaced by the leads at each station, PDMS leads and sleeve, the 48
+% contact boxes, element sizes), writes it to a JSON file, and runs src/mesh/mesh_personal.py (Python + gmsh/OpenCASCADE,
+% interpreter from NERVE_GMSH_PYTHON or "python") through system(). The Python script builds the solids, fragments them
+% into conforming regions, meshes with linear tetrahedra and writes nodes, elements and the region of each element back.
+%% Inputs / outputs
+%   p         project parameters with p.mesh3d (element sizes hContact_m ... hMax_m, fineHalfLength_m [m]), p.domain, p.cuff
+%             and p.personalGeometry (the Gmsh-model parameters q with the insertion scenario)
+%   patient   patient struct (fascicle table with x_m, y_m, a_m, b_m, angle_deg; nerveRadius_m)
+%   sites     contact table (centre_m, thickness_m, sideXY_m, sideZ_m [m], phi_deg)
+%   geom      struct describing the regions (cellTissue, cellSite, cellFascicle: tissue code / contact id / fascicle of
+%             each region), footprints and planes_m for the plots
+%   X         3 x nNodes node coordinates [m];  T  4 x nTets node indices;  elemCell  region of each element
 %% 1. Export the device in millimetres for OpenCASCADE
 R=patient.nerveRadius_m; F=patient.fascicles; m=p.mesh3d; % Read the user-configurable anatomy and element sizes.
 cuff=sites(sites.type=="cuff",:); q=p.personalGeometry; % Read the external contacts at their real axial coordinates.

@@ -1,4 +1,12 @@
 function [report,footprints]=checkCuffMeshContact(X,T,tissue,siteIds,sites,q) % Measure shared pad–epineurium triangles in the actual conduction mesh.
+% Purpose: audit of the Gmsh mesh before solving. Each rigid cuff pad must share its whole active face with the epineurium
+% (conforming triangles on the pad plane), otherwise the injected current would see a smaller contact than modelled. For each
+% cuff pad it finds the triangles shared by the pad tetrahedra and the epineurium tetrahedra that lie on the pad plane
+% (cuffContactPlane) and compares their area with the expected footprint (contact width x sideZ_m).
+% Inputs:  X (3 x nNodes [m]), T (4 x nTets node indices), tissue (1 x nTets tissue code, 3 = epineurium), siteIds (1 x nTets
+%          contact id of each element, 0 = none), sites (contact table), q (Gmsh-model parameters for cuffContactPlane).
+% Outputs: report table per cuff pad (site, shared_mm2, expected_mm2, sharedTriangles, planeError_um); footprints (cell of
+%          shared triangle node indices, for the figures). Errors if a pad is detached or its area differs by > 0.1 %.
 cuff=sites(sites.type=="cuff",:); count=height(cuff); % Inspect every external electrode using its own local frame.
 footprints=cell(count,1); % Retain the actual interface faces for the viewer and mesh figures.
 area=zeros(count,1); expected=area; residual=area; triangles=area; % Store footprint and coplanarity diagnostics per electrode.

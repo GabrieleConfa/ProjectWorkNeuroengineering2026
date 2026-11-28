@@ -8,10 +8,12 @@ cells = []
 
 
 def md(s):
+    """Add a markdown cell (the explanation the notebook reader sees)."""
     cells.append(("markdown", s.strip("\n")))
 
 
 def code(s):
+    """Add a code cell (run by the user in Jupyter)."""
     cells.append(("code", s.strip("\n")))
 
 
@@ -283,6 +285,9 @@ on the opposite station (section −k → +k), and its weight changes sign (cath
 ''')
 
 code(r'''
+# Load the FEM potential along every fibre line (HDF5 written by scripts/export_block_profiles.m), the
+# electrode layout, and build the distal anode pattern (ANODE_RETURN / DIST_PATTERN knobs of section 3).
+# Stops if the profiles are older than the 3D solution (they must be re-exported after every re-solve).
 H5_PATH = BLOCK_DIR / f"{PATIENT}_fibre_profiles.h5"
 FEM_MAT = ROOT / "results" / "main3d" / f"{PATIENT}_3d.mat"
 if FEM_MAT.exists() and H5_PATH.stat().st_mtime < FEM_MAT.stat().st_mtime:
@@ -398,6 +403,9 @@ re-used for every fibre line: the lines differ only by the extracellular potenti
 ''')
 
 code(r'''
+# Build the MRG fibre (one shared NEURON fibre, nodes aligned under the proximal contact) and the helpers
+# that turn a current into stimulator drives: rect (one pulse), the proximal drive, the anode pulses with
+# optional linear ramps written as a staircase of short pulses.
 t0 = time.time()
 runner = fibre_jobs.FibreRunner(H5_PATH, MRG, FIBRE_DIAM_um, Z_PROX_m, MECH_DIR, N_WORKERS)
 FIBRE = runner.fibre
@@ -484,6 +492,9 @@ with the inputs it depends on, and re-used if nothing changed.
 ''')
 
 code(r'''
+# Threshold of every fibre for the proximal pattern (doubling + bisection, fibre_jobs.threshold_job),
+# cached on disk by its inputs; then the 10 %-of-fibres threshold of every fascicle, the target fascicle
+# (lowest threshold) and the maximum selective current I_prox = SEL_MARGIN x the lowest other threshold.
 TH_CSV = VOLLEY_DIR / f"{PATIENT}_{PROX_NAME}_D{FIBRE_DIAM_um:g}_thresholds.csv"
 TH_KEY = VOLLEY_DIR / f"{PATIENT}_{PROX_NAME}_D{FIBRE_DIAM_um:g}_thresholds_key.json"
 key = {"h5_mtime": H5_PATH.stat().st_mtime, "h5_size": H5_PATH.stat().st_size,
@@ -547,6 +558,7 @@ must still be below 10 % there.
 ''')
 
 code(r'''
+# Recruitment curves: fraction of each fascicle fired against the proximal current (from the thresholds).
 amps = np.geomspace(np.nanmin(th_A) * 0.8, P["searchMax_A"], 200)
 fig, ax = plt.subplots(figsize=(8, 4.5))
 cmap = plt.get_cmap("tab10")
@@ -574,6 +586,8 @@ pulse alone every fired fibre should send one AP to the brain end and one to the
 ''')
 
 code(r'''
+# Reference run: every fibre with the proximal pulse alone. AP_BASE (AP times at every node) and
+# OUT_BASE (per-fascicle fractions reaching the brain and the muscle end) are the baseline of the criteria.
 t0 = time.time()
 AP_BASE = runner.run_ap_times([(i, [prox_drive(I_PROX)], T_STOP_BASE_s) for i in range(n_fibres)])
 OUT_BASE = volley.fascicle_outcomes(AP_BASE, fascicle, NODE_B, NODE_M)
@@ -594,6 +608,8 @@ the node under the anode. The anode plateau must contain all the arrival times.
 ''')
 
 code(r'''
+# Conduction velocity of the target fibres and arrival time of the volley at the distal site: the anode
+# plateau (PLATEAU_START_s ... PLATEAU_END_s) must contain every arrival.
 n_a, n_b = FIBRE.node_index(Z_DIST_m - 5e-3), FIBRE.node_index(Z_DIST_m + 10e-3)
 n_d = FIBRE.node_index(Z_DIST_m)
 fired_tgt = TGT[FIRED[TGT]]
@@ -628,6 +644,8 @@ GIF below shows it in motion.
 ''')
 
 code(r'''
+# One fibre of the target fascicle: membrane voltage at all nodes vs time (raster) and snapshots of the
+# travelling AP.
 I_EX = int(fired_tgt[np.nanargmin(th_A[fired_tgt])])
 _, _, rec = runner.record(I_EX, [prox_drive(I_PROX)], T_STOP_BASE_s)
 t_rec, v_rec = rec["t_s"], rec["v_V"]
@@ -678,6 +696,8 @@ flat (below 10 %) at the maximum selective current.
 ''')
 
 code(r'''
+# The whole target fascicle: fraction of its fibres carrying an AP at each node and time (volley map),
+# and the volley profile of every fascicle half-way to the distal site.
 VMAP_BASE = {int(k): volley.volley_map(AP_BASE, np.flatnonzero(fascicle == k), N_NODES, FRAMES_BASE,
                                        VOLLEY_WINDOW_s, n_norm=N_PER_FASC[int(k)]) for k in FASCICLES}
 active = [k for k in VMAP_BASE if VMAP_BASE[k].max() > 0]
@@ -738,6 +758,7 @@ First the pulse shapes (normalised to their amplitude), with the arrival of the 
 ''')
 
 code(r'''
+# Shapes of the anodal pulses tried (one per rise time), with the proximal pulse and the volley arrival.
 fig, ax = plt.subplots(figsize=(8, 2.8))
 for r in RISE_TIMES_s:
     p = anode_pulses(1.0, r)
@@ -770,6 +791,9 @@ site; they must stay well below what fires those fibres. The table gives the num
 ''')
 
 code(r'''
+# Static screen without NEURON: activating function at the nodes for the monopolar anode and for this
+# run's pattern (with its return contacts), near the distal site and near the sleeve end, target vs
+# other fascicles. Positive AF = depolarisation (where the anode itself could fire fibres).
 def af_nodes(i, pattern, amp_A=1e-6):
     """Activating function at the nodes of fibre i for amp_A of the pattern [V/m^2]; NaN at the end nodes."""
     ve = np.interp(FIBRE.z_node_m, z_m, fibre_jobs.pattern_profile(int(i), pattern)) * amp_A
@@ -813,6 +837,9 @@ AF_TABLE.round(1).T
 ''')
 
 code(r'''
+# Stage 1, target fascicle only: for every (rise time, anodal current) two runs per fibre, anode alone and
+# proximal + anode; per setting the residual volley at the muscle (C1), the block ratio, the fibres fired
+# by the anode, the brain-side volley (C0) and the Shannon charge check.
 GRID = [(rise, amp) for rise in RISE_TIMES_s for amp in ANODE_AMPS_A]
 jobs = []
 for rise, amp in GRID:
@@ -865,6 +892,7 @@ Hollow markers: settings beyond the Shannon limit (k = 1.75) on the anode contac
 ''')
 
 code(r'''
+# Block curves of stage 1 against the anodal current (filled dots: Shannon-safe settings).
 fig, axs = plt.subplots(1, 3, figsize=(15, 4), sharex=True)
 for rise, g in STAGE1.groupby("rise_ms", sort=False):
     for ax, col in zip(axs, ["frac_muscle", "block_ratio", "frac_anode_fires"]):
@@ -892,6 +920,8 @@ smallest residual volley are taken anyway, so that section 8 still shows how far
 ''')
 
 code(r'''
+# Settings passed to the whole-nerve check: those meeting C1, lowest charge first (or, if none, the
+# smallest residual volley).
 passing = STAGE1[STAGE1.C1].sort_values("charge_nC")
 if len(passing):
     CANDS = passing.head(N_CHECK)
@@ -920,6 +950,8 @@ flag, so that the physics and the hardware limits stay separate in the discussio
 ''')
 
 code(r'''
+# Stage 2, whole nerve: every fibre with the anode alone and with proximal + anode, for each selected
+# setting; criteria C0-C3 per fascicle (volley.fascicle_outcomes) and PASS = all four.
 CHECK, OUT_FASC, AP_CHECK = [], {}, {}
 for _, c in CANDS.iterrows():
     rise, amp = c.rise_ms * 1e-3, c.amp_uA * 1e-6
@@ -965,6 +997,8 @@ fascicle below the line at both ends.
 ''')
 
 code(r'''
+# Per-fascicle outcome of each checked setting: fraction reaching the muscle / brain end, with and
+# without the anode (dotted line = 10 % limit).
 fig, axs = plt.subplots(len(OUT_FASC), 1, figsize=(11, 3.2 * len(OUT_FASC)), squeeze=False, sharex=True)
 x = np.arange(len(FASCICLES))
 for ax, ((rise, amp), o) in zip(axs[:, 0], OUT_FASC.items()):
@@ -994,6 +1028,8 @@ that pass on the far side of the fascicle (the hyperpolarisation decays with dis
 ''')
 
 code(r'''
+# Cross-section map of the best setting: which fibres are blocked, still pass, are fired by the anode, or
+# stay quiet.
 best_row = CHECK[CHECK.PASS].sort_values("charge_nC").head(1)
 if len(best_row) == 0:
     best_row = CHECK.sort_values("target_frac_muscle").head(1)
@@ -1041,6 +1077,8 @@ shows the two volleys travelling together, plus the activity the anode adds in t
 ''')
 
 code(r'''
+# The volley of the target fascicle with and without the block (volley maps), the other fascicles with
+# the block, and how far along the nerve the APs travel (reach profile); animated GIFs are saved too.
 pul_b = anode_pulses(BEST[1], BEST[0])
 t0_frames = min(T_PROX_ON_s, start_s(pul_b)) - 0.1e-3
 FRAMES_B = np.arange(t0_frames, max(FRAMES_BASE[-1], end_s(pul_b) + 0.3e-3), FRAME_STEP_s)
@@ -1107,6 +1145,7 @@ the candidates, and the best setting.
 ''')
 
 code(r'''
+# Summary of the run (parameters, thresholds, criteria, best setting) written to summary.json.
 def _clean(o):
     if isinstance(o, (np.integer,)):
         return int(o)
@@ -1147,6 +1186,8 @@ written (a few hundred kB per run). Then reload `viewer/index.html` and press <k
 ''')
 
 code(r'''
+# Export the runs to the 3D viewer (viewer/index.html, Volley playback): results/viewer/<patient>/
+# volley_<name>.js + volleys.js (src/block/volley.py export_viewer_volley).
 VIEW_DIR = ROOT / "results" / "viewer" / PATIENT
 prox_ch = {"name": f"proximal {PROX_NAME}", "kind": "cathode", "contacts": PROX_PATTERN,
            "pulses": rect(T_PROX_ON_s, PROX_WIDTH_s, I_PROX)}

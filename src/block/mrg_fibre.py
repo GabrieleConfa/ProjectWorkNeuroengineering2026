@@ -92,6 +92,14 @@ class MRGFibre:
 
     def __init__(self, diam_um: float, length_m: float, z_align_m: float, mech_dir: Path,
                  temperature_C: float = 37.0):
+        """Build the fibre in NEURON.
+
+        diam_um        fibre diameter [um], one of the MRG_TABLE keys (5.7 ... 16.0)
+        length_m       fibre length [m], centred on z = 0 (nodes only inside |z| <= length_m / 2)
+        z_align_m      z [m] where one node of Ranvier must sit (e.g. under the proximal contact)
+        mech_dir       folder with the compiled AXNODE mechanism (results/mrg/model)
+        temperature_C  temperature of the simulation [deg C] (MRG: 37)
+        """
         load_mechanism(mech_dir)
         if diam_um not in MRG_TABLE:
             raise ValueError(f"MRG has no parameter set for D = {diam_um} um; allowed {sorted(MRG_TABLE)}")
@@ -119,6 +127,14 @@ class MRGFibre:
         D = diam_um
 
         def make(kind, i):
+            """One compartment (1 segment) of type node | MYSA | FLUT | STIN with the MRGaxon.hoc parameters.
+
+            node: active AXNODE membrane, periaxonal resistance Rpn0, no myelin (xg = 1e10, xc = 0);
+            MYSA / FLUT / STIN (paranode, juxtaparanode, internode): passive membrane under the myelin
+            sheath, whose conductance and capacitance (nl lamellae, two membranes each) are the outer
+            layer of the extracellular mechanism. The extracellular potential is applied through
+            e_extracellular in run().
+            """
             s = h.Section(name=f"{kind}{i}")
             s.nseg = 1
             if kind == "node":

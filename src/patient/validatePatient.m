@@ -1,4 +1,8 @@
 function validatePatient(patient, q) % Check that a patient (virtual or measured) is usable by the model. Errors explain what to fix.
+% Inputs: patient struct (coordinates in m); q parameter struct (not used by the checks, kept for the call signature).
+% Checks: required fields, units in metres, closed nerve outline, every fascicle (>= 8 points) inside the nerve by at least
+% one perineurium thickness, compositions summing to 1, motor patches inside their fascicle, no two fascicles overlapping
+% (perineurium included). No output: it returns silently when the patient is valid, otherwise it stops with an error.
 %% Required content (see docs/patient_data.md)
 req = ["id","source","units","nerve","tPeri_m","fascicles"]; for f = req, assert(isfield(patient,f),'Patient is missing the field "%s".',f); end
 assert(patient.units=="m" || string(patient.units)=="m",'Coordinates must be in metres (units = "m").');

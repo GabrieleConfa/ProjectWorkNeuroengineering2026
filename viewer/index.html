@@ -6,14 +6,35 @@
 <title>Nerve 3D Viewer</title>
 <!--
   Interactive 3D viewer of the solved median-nerve model (project work, Neuroengineering).
-  Data: written by scripts/export_viewer_data.m into results/viewer/<patient>/ (geometry.js + AS<k>.js).
-  Open this file directly in Chrome / Edge / Firefox (no server needed). Options in the URL:
-    index.html?patient=UA01            which exported patient to load (default UA01)
-    index.html?data=some/folder/       load the data from another folder (must end with /)
+  Data: written by scripts/export_viewer_data.m into results/viewer/<patient>/ (geometry.js + AS<k>.js),
+  and, for the volley playback, by src/block/volley.py export_viewer_volley (volleys.js + volley_<name>.js).
+  Nothing is computed here except the sum of contact fields for a pattern (superposition, the FEM model
+  is linear) and its activating function: every field comes from the MATLAB FEM solution, every action
+  potential from NEURON.
+  Open this file directly in Chrome / Edge / Firefox (no server needed).
+
+  Options in the URL (combine with &), handy to open a prepared view in a presentation:
+    patient=UA01            which exported patient to load (default UA01)
+    data=some/folder/       load the data from another folder (must end with /)
+    site=2                  contact selected at start (default: AS 2, or the first solved contact)
+    heat=1                  start with the stimulation already on (no fade-in)
+    q=V|E|J|A|N             quantity shown: potential, |E|, |J|, activating function AF+ / AF-
+    cmap=inferno            colour map (default turbo)
+    pattern=2:-10,44:20     pattern mode with these contacts and currents (id:uA, negative = cathodic)
+    cut=transverse|longitudinal, z=-10.3, angle=90, offset=0, flip=1     cut of the nerve
+    full=1                  whole 70 mm model instead of the electrode zone
+    hide=nerve,fascicles,cuff,leads,contacts,labels                       layers hidden at start
+    volley=<name>, vt=<ms>, vplay=1                                       volley run, time, autoplay
+    vstyle=string|ripple|dots, vcol=cyan|magenta|lime|yellow|fascicle, vglow=1, vcore=9, vhalo=30
   Libraries: three.js r147 (MIT), vendored in viewer/vendor/ so the page also works offline.
-  How it works: docs/model_3d.md, section 8.2.
+  How it works: docs/model_3d.md, section 8.2; the README has the key list.
+
+  Layout of this file: CSS (panel, colour bar, chart, help) -> HTML of the overlays -> one script with
+  the sections, in order: data loading, colour maps, state, start-up, scene, materials, geometry,
+  volume rendering, cut face, fields, patterns, UI, updates, volley playback, animation loop.
 -->
 <style>
+  /* colour tokens of the dark theme (panel glass, text, accents) */
   :root {
     --bg: #000;
     --panel: rgba(12, 16, 22, 0.82);
@@ -25,23 +46,31 @@
     --btn: rgba(255, 255, 255, 0.06);
     --btn-on: rgba(95, 212, 255, 0.22);
   }
+  /* the page is the full-window canvas; nothing scrolls */
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 12px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
   canvas#c { display: block; width: 100vw; height: 100vh; outline: none; }
+  /* every floating box (title, panel, colour bar, chart, help) shares this translucent look */
   .glass { background: var(--panel); border: 1px solid var(--panel-border); border-radius: 10px;
     backdrop-filter: blur(6px); }
+  /* title box, top left */
   #title { position: fixed; left: 16px; top: 14px; padding: 8px 12px; max-width: 46vw; }
   #title b { color: var(--accent); font-size: 14px; }
   #title .sub { color: var(--muted); margin-top: 2px; }
-  #panel { position: fixed; right: 16px; top: 14px; width: 272px; max-height: calc(100vh - 28px);
+  /* border-box: max-height includes padding and border, so the panel never runs past the window bottom
+     (272 px of content + 2 x 12 px padding + 2 x 1 px border = 298 px) */
+  #panel { position: fixed; right: 16px; top: 14px; width: 298px; box-sizing: border-box; max-height: calc(100vh - 28px);
     overflow-y: auto; padding: 10px 12px; }
+  /* panel sections: small caps headings, thin separator lines */
   #panel h3 { margin: 10px 0 6px; font-size: 11px; letter-spacing: .08em; text-transform: uppercase;
     color: var(--muted); font-weight: 600; }
   #panel h3:first-child { margin-top: 0; }
   #panel section { border-top: 1px solid rgba(255,255,255,0.06); padding-top: 6px; margin-top: 6px; }
   #panel section:first-of-type { border-top: 0; margin-top: 0; padding-top: 0; }
+  /* one control per line: label | input | value with unit (fixed 70 px label column) */
   label.line { display: grid; grid-template-columns: 70px 1fr auto; align-items: center; gap: 6px; margin: 4px 0; }
   label.line span.val { color: var(--muted); min-width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+  /* form controls styled for the dark panel */
   select, input[type=number] { width: 100%; box-sizing: border-box; background: #0b1016; color: var(--text);
     border: 1px solid rgba(255,255,255,0.14); border-radius: 6px; padding: 3px 5px; font: inherit; }
   input[type=range] { width: 100%; accent-color: var(--accent); }
@@ -51,8 +80,11 @@
   button:hover { border-color: var(--accent); }
   button.on { background: var(--btn-on); border-color: var(--accent); color: #fff; }
   button:disabled { opacity: .35; cursor: default; }
+  /* the big Stimulate / Stop button (orange while the stimulation is on) */
   #btnStim { width: 100%; margin: 6px 0; padding: 8px; font-size: 13px; font-weight: 600; }
   #btnStim.on { background: rgba(255, 120, 60, 0.28); border-color: #ff8a50; }
+  /* .seg: row of equal buttons (segmented control); .checks: two columns of checkboxes; .stations: grid of
+     station buttons; kbd: key hints; .hint: small grey explanations */
   .seg { display: flex; gap: 4px; margin: 4px 0; }
   .seg button { flex: 1; }
   .checks { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 8px; margin: 4px 0; }
@@ -61,17 +93,22 @@
   kbd { font: 10px ui-monospace, Consolas, monospace; color: var(--muted); border: 1px solid rgba(255,255,255,0.18);
     border-radius: 3px; padding: 0 3px; margin-left: 2px; }
   .hint { color: var(--muted); font-size: 11px; margin: 4px 0; }
+  /* colour bar, bottom centre (hidden until a field is shown) */
   #colorbar { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; padding: 8px 12px 6px;
     width: min(440px, calc(100vw - 32px)); box-sizing: border-box; display: none; }
-  #colorbar .cbTitle { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  /* title row of the colour bar: quantity on the left, contact / pattern on the right; the right part wraps
+     (a long pattern label must stay inside the box instead of running past its edge) */
+  #colorbar .cbTitle { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 4px; }
   #colorbar .cbTitle b { color: #fff; }
-  #colorbar .cbTitle span:last-child { white-space: nowrap; margin-left: 10px; }
+  #colorbar .cbTitle span:first-child { flex: 1 1 auto; min-width: 0; }
+  #colorbar .cbTitle span:last-child { flex: 0 1 auto; max-width: 40%; text-align: right; overflow-wrap: anywhere; }
   #colorbar canvas { width: 100%; height: 12px; border-radius: 3px; display: block; }
   #colorbar .ticks { display: flex; justify-content: space-between; color: var(--muted); margin-top: 2px;
     font-variant-numeric: tabular-nums; }
+  /* tooltip that follows the mouse over a contact; key list and its button, bottom left; centred message */
   #tooltip { position: fixed; pointer-events: none; padding: 6px 9px; display: none; max-width: 300px;
     white-space: pre-line; z-index: 5; }
-  #help { position: fixed; left: 16px; bottom: 16px; padding: 10px 14px; display: none; max-width: 360px; }
+  #help { position: fixed; left: 16px; bottom: 16px; padding: 10px 14px; display: none; max-width: 360px; z-index: 6; }
   #help table { border-collapse: collapse; }
   #help td { padding: 1px 8px 1px 0; vertical-align: top; }
   #help td:first-child { white-space: nowrap; }
@@ -79,33 +116,48 @@
   #msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
   #msg div { padding: 14px 18px; max-width: 520px; pointer-events: auto; }
   #msg code { color: var(--accent-2); }
+  /* pattern table: station label + 6 contact inputs per row; cyan = cathode, red = anode */
   #patGrid { display: grid; grid-template-columns: 26px repeat(6, 1fr); gap: 2px; margin: 6px 0; }
   #patGrid .st { color: var(--muted); font-variant-numeric: tabular-nums; align-self: center; font-size: 11px; }
-  #patGrid input { padding: 2px 3px; font-size: 11px; text-align: right; min-width: 0; }
+  /* six inputs per row in a 272 px panel: no spin buttons (they take the room of the digits, "-10" became "-1(") */
+  #patGrid input { padding: 2px 1px; font-size: 11px; text-align: center; min-width: 0; -moz-appearance: textfield; appearance: textfield; }
+  #patGrid input::-webkit-inner-spin-button, #patGrid input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   #patGrid input.cath { border-color: #4cc9f0; background: rgba(76, 201, 240, 0.16); }
   #patGrid input.anod { border-color: #ff6b4a; background: rgba(255, 107, 74, 0.16); }
   #patGrid input:disabled { opacity: 0.3; }
+  /* volley playback: Play button, per-fascicle table (orange = 10 % or more reached the muscle) */
   #btnVPlay { width: 100%; margin: 4px 0; padding: 6px; font-weight: 600; }
   #btnVPlay.on { background: rgba(255, 204, 85, 0.22); border-color: var(--accent-2); }
   #volleyInfo table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
   #volleyInfo td { padding: 0 4px 0 0; }
   #volleyInfo td.hi { color: #ff8a65; }
+  /* volley chart: bottom-left, above the "? keys" button; layoutOverlays() raises it further when it would
+     cover the colour bar (screens narrower than ~1600 px) or the panel (phones) */
   #volleyChart { position: fixed; left: 16px; bottom: 52px; width: min(560px, calc(100vw - 330px));
     padding: 8px 10px 6px; box-sizing: border-box; display: none; }
   #volleyChart canvas { width: 100%; height: 220px; display: block; }
+  /* narrow screens (phones, small windows): the panel moves to the bottom, the "? keys" button and the key list
+     to the top right, next to the title (bottom-left they would cover the panel) */
   @media (max-width: 720px) {
     #panel { width: auto; left: 16px; top: auto; bottom: 16px; max-height: 45vh; }
-    #title { max-width: calc(100vw - 32px); }
+    #title { max-width: calc(100vw - 110px); box-sizing: border-box; }
     #colorbar { bottom: calc(45vh + 28px); }
+    #helpBtn { left: auto; right: 16px; top: 14px; bottom: auto; }
+    #help { left: 16px; right: 16px; top: 14px; bottom: auto; max-width: none; max-height: 70vh; overflow-y: auto; }
+    #volleyChart { width: calc(100vw - 32px); }
   }
 </style>
 </head>
 <body>
+<!-- full-window WebGL canvas (three.js): the 3D model; every other element floats over it -->
 <canvas id="c" tabindex="0"></canvas>
 
+<!-- top left: title and the subtitle written by buildModel (patient, nerve, contacts, boundary conditions) -->
 <div id="title" class="glass"><b>Nerve 3D viewer</b><div class="sub" id="subtitle">loading…</div></div>
 
+<!-- right: control panel (shown by initUI once the data are loaded); its four sections follow -->
 <div id="panel" class="glass" hidden>
+  <!-- Stimulation: single contact or pattern, quantity shown, current, colour window -->
   <section>
     <h3>Stimulation</h3>
     <div class="seg" id="segMode">
@@ -141,6 +193,7 @@
     <label class="line">Colours <select id="selCmap"><option value="turbo">turbo</option><option value="inferno">inferno</option></select><span></span></label>
     <div class="checks"><label><input type="checkbox" id="cbPulse"> pulse train <kbd>P</kbd></label></div>
   </section>
+  <!-- Volley playback of NEURON runs (shown by initVolleys only if volleys.js was exported) -->
   <section id="volleySec" hidden>
     <h3>Volley · NEURON playback</h3>
     <div class="hint">Action potentials simulated in NEURON (notebooks/block_volley.ipynb), replayed in slow motion.
@@ -173,6 +226,7 @@
     </div>
     <div class="hint" id="volleyInfo"></div>
   </section>
+  <!-- Dissection: transverse / lengthwise cut of the nerve, station shortcuts -->
   <section>
     <h3>Dissection</h3>
     <div class="seg" id="segCut">
@@ -190,6 +244,7 @@
     <div class="hint">Jump to the cross-section through a station:</div>
     <div class="stations" id="stations"></div>
   </section>
+  <!-- Show: which parts of the model are drawn -->
   <section>
     <h3>Show</h3>
     <div class="checks">
@@ -205,14 +260,17 @@
   </section>
 </div>
 
+<!-- bottom centre: colour bar of the field shown (updateColorbar) -->
 <div id="colorbar" class="glass">
   <div class="cbTitle"><span id="cbName"></span><span id="cbInfo"></span></div>
   <canvas id="cbCanvas" width="512" height="12"></canvas>
   <div class="ticks" id="cbTicks"></div>
 </div>
 
+<!-- bottom left: volley chart (drawVolleyChart), positioned by layoutOverlays -->
 <div id="volleyChart" class="glass"><canvas id="vcCanvas"></canvas></div>
 
+<!-- hover tooltip of a contact (initPicking), the "? keys" button and the key list it opens -->
 <div id="tooltip" class="glass"></div>
 <button id="helpBtn" class="glass">? keys</button>
 <div id="help" class="glass">
@@ -238,6 +296,7 @@
     second difference along z over one internode. The pulse train is an illustration of I(t).</div>
 </div>
 
+<!-- centred message box (missing data, no WebGL2) -->
 <div id="msg"></div>
 <!-- errors are also collected here (hidden), so that a headless test can read them from the DOM -->
 <pre id="dbg" hidden></pre>
@@ -271,6 +330,8 @@ const urlParams = new URLSearchParams(location.search);
 const PATIENT = urlParams.get('patient') || 'UA01';
 const DATA_DIR = urlParams.get('data') || `../results/viewer/${PATIENT}/`;
 
+// Load a data file (a .js that calls NV.setModel / NV.addField / NV.addVolley) by adding a <script> tag:
+// works from file:// where fetch() is blocked. Resolves when the script has run.
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const s = document.createElement('script');
@@ -299,6 +360,8 @@ async function b64ToBytes(s, gz) {
 /* ======================================================================================
    Colour maps (polynomial fits, the same in GLSL and in JS for the colour bar).
    ====================================================================================== */
+// Polynomial approximations (public GLSL snippets) of two perceptual colour maps: Turbo (Google, 2019) and
+// matplotlib's inferno. They replace a lookup table. Input in [0, 1], output RGB in [0, 1].
 const GLSL_CMAPS = `
 vec3 turbo(float x) {
   const vec4 kr = vec4(0.13572138, 4.61539260, -42.66032258, 132.13108234);
@@ -327,6 +390,7 @@ uniform int uCmap;
 vec3 cmap(float s) { return uCmap == 0 ? turbo(s) : inferno(s); }
 `;
 
+// Colour of x in [0, 1] for the colour bar: same polynomial fits as the GLSL turbo / inferno above. Returns [r, g, b] 0..255.
 function cmapJS(name, x) {
   x = Math.min(Math.max(x, 0), 1);
   let c;
@@ -486,8 +550,42 @@ function initScene() {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight, false);
+    layoutOverlays();
+    if (VOL.show && VOL.cur) drawVolleyChart();          // the chart canvas follows its new width
   });
 }
+
+// Keep the floating boxes at the bottom of the screen from covering each other. The volley chart sits
+// bottom-left above the "? keys" button; when the colour bar (centred) or the panel (bottom on phones)
+// overlaps it horizontally, the chart is raised just above that box.
+function layoutOverlays() {
+  const ch = document.getElementById('volleyChart');
+  if (!ch || ch.style.display !== 'block') return;
+  let bottom = 52;
+  const left = ch.offsetLeft, right = left + ch.offsetWidth;
+  for (const id of ['colorbar', 'panel']) {
+    const el = document.getElementById(id);
+    if (!el || el.hidden || getComputedStyle(el).display === 'none') continue;
+    const r = el.getBoundingClientRect();
+    if (r.width === 0 || r.left >= right + 8 || r.right <= left - 8) continue;   // not under the chart
+    if (r.top < 0.3 * window.innerHeight) continue;          // a box from the top (the side panel on a wide screen)
+    bottom = Math.max(bottom, window.innerHeight - r.top + 8);
+  }
+  ch.style.bottom = `${Math.round(bottom)}px`;
+  // on short screens (phones) the raised chart would reach the title: shrink its plot (220 px down to
+  // 120 px) to the room left between the title and the box below it
+  const cv = document.getElementById('vcCanvas');
+  const titleBottom = document.getElementById('title').getBoundingClientRect().bottom;
+  const room = window.innerHeight - bottom - titleBottom - 8 - 14;      // 14 = vertical padding of the chart box
+  const hPx = `${Math.max(120, Math.min(220, Math.floor(room)))}px`;
+  if (cv.style.height !== hPx) {
+    cv.style.height = hPx;
+    if (typeof VOL !== 'undefined' && VOL.show && VOL.cur) drawVolleyChart();   // redraw at the new size
+  }
+}
+
+// "10 uA" in the names written by the Python export -> "10 µA" on screen
+function niceUnits(s) { return String(s).replace(/(\d)\s?uA\b/g, '$1 µA').replace(/\bum\b/g, 'µm'); }
 
 // Default view: the whole drawn range, from the front-left and slightly above. With a contact
 // selected (and not in full-length mode), a closer view centred on its station.
@@ -532,6 +630,7 @@ function glassMaterial(colour, base, rim) {
       varying vec3 vV;
       void main() {
         #include <clipping_planes_fragment>
+        // rim factor: 0 where the surface faces the camera, 1 where it is seen edge-on
         float f = 1.0 - abs(dot(normalize(vN), normalize(vV)));
         float a = (uBase + uRim * pow(f, 3.0)) * uOpacity;
         gl_FragColor = vec4(uColor, a);    // additive blending: adds uColor * a
@@ -716,11 +815,24 @@ function buildModel() {
     (isOval() ? `oval ${(2 * NA[0]).toFixed(2)} × ${(2 * NA[1]).toFixed(2)} mm · ` : `R = ${R.toFixed(2)} mm · `) +
     `${M.solvedIds.length} of ${M.sites.length} contacts solved` +
     (M.leads.length ? ` · ${M.leads.length} bent PDMS leads` : '') +
-    `<br>monopolar per contact, return = grounded outer boundary · ${M.cuff.kind || 'cuff'}`;
+    `<br>monopolar per contact, return = ${bcText()} · ${M.cuff.kind || 'cuff'}`;
+}
+
+// Boundary conditions of the solved run (geometry.js "bc", written since 2026-11-28; older exports had
+// the whole outer boundary grounded): where the current of a monopolar contact returns.
+function bcText() {
+  if (!M.bc) return 'grounded outer boundary';
+  const lat = M.bc.lateral === 'ground', ends = M.bc.ends === 'ground';
+  if (lat && ends) return 'grounded outer boundary';
+  if (lat) return 'grounded outer surface (end planes insulated)';
+  if (ends) return 'grounded end planes (outer surface insulated)';
+  return 'none (all insulated)';
 }
 
 function viewHalf() { return state.fullLength ? M.nerveLength / 2 : VIEW_HALF_ZONE; }
 
+// Outline rings of the nerve and of every fascicle at both ends of the shown length, fascicle labels (F1 ...)
+// and station labels (-4 ... +4). Rebuilt when the shown length changes (full length on/off).
 function buildRingsAndLabels() {
   ringGroup.clear();
   labelGroup.clear();
@@ -772,6 +884,7 @@ function buildRingsAndLabels() {
   });
 }
 
+// Text label as a sprite that always faces the camera (station numbers): drawn on a canvas, height in mm.
 function textSprite(text, colour, height) {
   const c = document.createElement('canvas');
   const ctx = c.getContext('2d');
@@ -821,6 +934,7 @@ function buildVolume() {
       uCutOn: { value: false }, uCut: { value: new THREE.Vector4(0, 0, 1, 0) },
     },
     vertexShader: `
+      // the box covers the data grid; pass each vertex position (nerve coordinates, mm) to the fragment shader
       varying vec3 vLocal;
       void main() {
         vLocal = position;
@@ -840,9 +954,10 @@ function buildVolume() {
         vec2 l = vec2(uRot.x * p.x + uRot.y * p.y, -uRot.y * p.x + uRot.x * p.y) / ax;
         return dot(l, l);
       }
-      float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+      float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }   // pseudo-random 0..1 per pixel
       void main() {
         vec3 o = uCam;
+        // ray from the camera through this pixel, clipped to the grid box (slab method: entry tn, exit tf)
         vec3 d = normalize(vLocal - uCam);
         vec3 inv = 1.0 / d;
         vec3 t0 = (uBoxMin - o) * inv, t1 = (uBoxMax - o) * inv;
@@ -859,6 +974,8 @@ function buildVolume() {
           }
         }
         if (tn >= tf || uIntensity <= 0.0) discard;
+        // march front to back with emission-absorption compositing; the start is jittered per pixel
+        // (hash) so that the fixed step does not show as bands
         float dt = max((tf - tn) / 480.0, 0.012);
         float t = tn + dt * hash(gl_FragCoord.xy);
         vec4 acc = vec4(0.0);
@@ -866,6 +983,8 @@ function buildVolume() {
           if (t > tf || acc.a > 0.97) break;
           vec3 p = o + t * d;
           t += dt;
+          // skip points outside the nerve or the shown length, on the removed side of the cut, with no data
+          // (code 0) or below the colour window
           if (ellQ(p.xy, uAx) > 1.0 || p.z < uZmin || p.z > uZmax) continue;
           if (uCutOn && dot(uCut.xyz, p) > uCut.w) continue;
           float c = texture(uData, (p - uBoxMin) / (uBoxMax - uBoxMin)).r * 255.0;
@@ -896,6 +1015,7 @@ function buildVolume() {
 const MAX_PRISMS = 48, MAX_STATIONS = 16;
 function buildSlice() {
   const { min, max } = gridBox();
+  // fascicle outlines (whole length) and lead bodies (their axial slab) -> one row each of a float texture
   const prisms = [];
   M.fascicles.forEach((f, i) => prisms.push({ v: f.outline, z: [-1e6, 1e6], col: f.colour, fi: i }));
   M.leads.forEach((ld) => prisms.push({ v: ld.xy, z: [ld.z - ld.thickness / 2, ld.z + ld.thickness / 2], col: LEAD_COLOUR, fi: -1 }));
@@ -906,6 +1026,7 @@ function buildSlice() {
   const polyTex = new THREE.DataTexture(polyData, nvMax, Math.max(prisms.length, 1), THREE.RGFormat, THREE.FloatType);
   polyTex.minFilter = polyTex.magFilter = THREE.NearestFilter;
   polyTex.needsUpdate = true;
+  // displacement of every fascicle at every station (the shader fades it along z over uBump) -> shift texture
   const D = M.displacement && M.displacement.stations ? [].concat(M.displacement.stations) : [];
   const nSt = Math.min(D.length, MAX_STATIONS), nF = Math.max(M.fascicles.length, 1);
   const shiftData = new Float32Array(Math.max(nSt, 1) * nF * 2);
@@ -920,6 +1041,7 @@ function buildSlice() {
   shiftTex.minFilter = shiftTex.magFilter = THREE.NearestFilter;
   shiftTex.needsUpdate = true;
   const pad = (arr, n, fill) => { const a = arr.slice(0, n); while (a.length < n) a.push(fill()); return a; };
+  // bounding box of each prism, enlarged by the largest shift: quick rejection before the point-in-polygon test
   const box = (q) => {
     const xs = q.v.map((p) => p[0]), ys = q.v.map((p) => p[1]), m = q.fi >= 0 ? maxShift : 0;
     return new THREE.Vector4(Math.min(...xs) - m, Math.min(...ys) - m, Math.max(...xs) + m, Math.max(...ys) + m);
@@ -943,6 +1065,7 @@ function buildSlice() {
       uStZ: { value: pad(D.slice(0, nSt).map((s) => s.z), MAX_STATIONS, () => 0) },
     },
     vertexShader: `
+      // the box covers the data grid; pass each vertex position (nerve coordinates, mm) to the fragment shader
       varying vec3 vLocal;
       void main() {
         vLocal = position;
@@ -1004,6 +1127,7 @@ function buildSlice() {
         return dot(l, l);
       }
       void main() {
+        // a point of the cut face: outside the nerve only the cuff/sleeve wall is drawn (dark grey)
         vec3 p = vLocal;
         float q = ellQ(p.xy, uAx);
         if (q > 1.0) {
@@ -1016,6 +1140,7 @@ function buildSlice() {
         vec3 edgeCol = uNerveCol;
         float px = max(length(fwidth(p)), 1e-5);             // size of one pixel on the cut [mm]
         float margin = 2.0 * px;
+        // fascicles (displaced near the stations) and lead bodies: fill colour inside, bright outline on the edge
         for (int i = 0; i < ${MAX_PRISMS}; i++) {
           if (i >= uNP) break;
           if (p.z < uPZ[i].x || p.z > uPZ[i].y) continue;
@@ -1027,6 +1152,7 @@ function buildSlice() {
           float e = outlinePx(dd, px);                                             // perineurium / lead edge
           if (e > edge) { edge = e; edgeCol = uPCol[i]; }
         }
+        // heatmap of the field on top of the tissue colours (same colour window as the 3D view)
         if (uHeat && uIntensity > 0.0) {
           vec3 uvw = (p - uBoxMin) / (uBoxMax - uBoxMin);
           if (all(greaterThanEqual(uvw, vec3(0.0))) && all(lessThanEqual(uvw, vec3(1.0)))) {
@@ -1037,7 +1163,7 @@ function buildSlice() {
             }
           }
         }
-        col = mix(col, mix(edgeCol, vec3(1.0), 0.35), edge * 0.9);
+        col = mix(col, mix(edgeCol, vec3(1.0), 0.35), edge * 0.9);   // outlines drawn last, over the heatmap
         gl_FragColor = vec4(col, 1.0);
       }`,
     side: THREE.DoubleSide,
@@ -1128,6 +1254,8 @@ async function ensureV16(id) {
   return f;
 }
 
+// 3D texture (one byte per voxel, 0 = no data) of quantity q of field id, built once and cached; the volume
+// rendering and the cut face sample it with linear interpolation.
 function fieldTexture(id, q) {
   const key = `${id}:${q}`;
   if (texCache[key]) return texCache[key];
@@ -1180,7 +1308,7 @@ function patternEntries() {
     .sort((a, b) => a[0] - b[0]);
 }
 function patternLabel(entries) {
-  return entries.map(([id, I]) => `AS${id} ${I > 0 ? '+' : ''}${I}`).join(', ') + ' µA';
+  return entries.map(([id, I]) => `AS${id} ${I > 0 ? '+' : ''}${I}`).join(', ') + ' µA';
 }
 function codeLinearJS(vals, valid) {          // 8-bit 1..255 over [min, max]; 0 = no data
   let lo = Infinity, hi = -Infinity;
@@ -1277,7 +1405,7 @@ async function computePattern() {
   };
   const nC = entries.filter(([, I]) => I < 0).length, nA = entries.length - nC;
   const net = entries.reduce((s, [, I]) => s + I, 0);
-  $('patInfo').innerHTML = `${entries.length} contacts (${nC} cathodic, ${nA} anodic) · net current ${net > 0 ? '+' : ''}${+net.toFixed(3)} µA` +
+  $('patInfo').innerHTML = `${entries.length} contacts (${nC} cathodic, ${nA} anodic) · net current ${net > 0 ? '+' : ''}${+net.toFixed(3)}&nbsp;µA` +
     (Math.abs(net) > 1e-9 ? ' to the grounded boundary' : ' (balanced)') +
     `<br>V ${formatValue(vMin)} … ${formatValue(vMax)} mV (coloured: |V|)`;
   if (!state.heatOn) state.heatOn = true;
@@ -1309,6 +1437,7 @@ function buildPatternGrid() {
     }
   });
 }
+// pattern table -> state.pattern (empty or 0 = contact off)
 function readPatternInputs() {
   state.pattern = {};
   document.querySelectorAll('#patGrid input[data-id]').forEach((inp) => {
@@ -1317,6 +1446,7 @@ function readPatternInputs() {
   });
   writePatternInputs();
 }
+// state.pattern -> pattern table (values, cyan border for cathodes, red for anodes)
 function writePatternInputs() {
   document.querySelectorAll('#patGrid input[data-id]').forEach((inp) => {
     const v = state.pattern[Number(inp.dataset.id)];
@@ -1325,6 +1455,8 @@ function writePatternInputs() {
     inp.classList.toggle('anod', v > 0);
   });
 }
+// Switch between "single" (one exported contact) and "pattern" (sum of contacts computed here). Entering
+// pattern mode with no contact set starts from the selected contact as a -1 uA cathode.
 async function setMode(mode) {
   state.mode = mode;
   $('singleBox').hidden = mode !== 'single';
@@ -1342,6 +1474,8 @@ async function setMode(mode) {
    ====================================================================================== */
 function $(id) { return document.getElementById(id); }
 
+// Fill the panel (contact list, pattern table, station buttons) and connect every control to the state;
+// every handler ends in updateAll(), which redraws from the state.
 function initUI() {
   $('panel').hidden = false;
   const sel = $('selSite');
@@ -1457,6 +1591,8 @@ function solvedNeighbour(step) {
   return ids[(k + step + ids.length) % ids.length];
 }
 
+// Keyboard shortcuts (list in the "? keys" box). Ignored while typing in a number box, and arrows are left
+// to a focused <select>.
 function onKey(e) {
   if (e.target.tagName === 'INPUT' && e.target.type === 'number') return;
   if (e.target.tagName === 'SELECT' && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) return;
@@ -1595,6 +1731,7 @@ function updateAll() {
   updateColorbar();
 }
 
+// Number for the colour bar ticks: about 3 significant digits, exponent notation from 1000.
 function formatValue(v) {
   const a = Math.abs(v);
   if (a >= 1000) return v.toExponential(1);
@@ -1608,7 +1745,7 @@ function updateColorbar() {
   const bar = $('colorbar');
   const fid = currentFieldId();
   const f = fid != null ? NV.fields[fid] : null;
-  if (!f) { bar.style.display = 'none'; return; }
+  if (!f) { bar.style.display = 'none'; layoutOverlays(); return; }
   bar.style.display = 'block';
   const isPattern = fid === 'pattern';
   const q = state.quantity, info = f.quantities[q];
@@ -1626,7 +1763,8 @@ function updateColorbar() {
   if (extra) extra = `<br><span style="color:var(--muted)">${extra}</span>`;
   const qName = q === 'V' && info.magnitude ? 'Potential |V|' : Q_INFO[q].name;
   $('cbName').innerHTML = `<b>${qName}</b> [${unit}]${info.scale === 'log' ? ' · log scale' : ''}${extra}`;
-  $('cbInfo').textContent = (isPattern ? `pattern: ${f.label}` : `AS ${f.id} · ${I} µA`) + (state.heatOn ? '' : ' · off');
+  //   = non-breaking space: a value never wraps away from its unit ("1 / µA")
+  $('cbInfo').textContent = (isPattern ? `pattern: ${f.label}` : `AS ${f.id} · ${I} µA`) + (state.heatOn ? '' : ' · off');
   const cv = $('cbCanvas'), ctx = cv.getContext('2d');
   const img = ctx.createImageData(cv.width, cv.height);
   for (let x = 0; x < cv.width; x++) {
@@ -1639,6 +1777,7 @@ function updateColorbar() {
   ctx.putImageData(img, 0, 0);
   const ticks = [0, 0.25, 0.5, 0.75, 1].map((s) => formatValue(value(lo + s * (hi - lo))));
   $('cbTicks').innerHTML = ticks.map((t, i) => `<span>${i === 0 ? '≤ ' : i === 4 ? '≥ ' : ''}${t}</span>`).join('');
+  layoutOverlays();                           // its height may have changed: keep the volley chart above it
 }
 
 /* ======================================================================================
@@ -1681,7 +1820,8 @@ async function initVolleys() {
   VOL.list.forEach((n) => {
     const o = document.createElement('option');
     o.value = n;
-    o.textContent = NV.volleys[n].title || n;
+    o.textContent = niceUnits(NV.volleys[n].title || n);
+    o.title = o.textContent;                  // full name on hover (the select box cuts long names)
     sel.appendChild(o);
   });
   sel.addEventListener('change', () => selectVolley(sel.value));
@@ -1801,6 +1941,8 @@ function apColour(v, f) {
 // height of the wave in mm: the slider value at the default zone, scaled with the length shown
 function waveHeight() { return VOL.height * Math.max(1, viewHalf() / VIEW_HALF_ZONE); }
 
+// Make run `name` the current volley: index its AP events (prepVolley), build one point per node of every
+// fibre (dots style), the faint fibre lines and the wave lines, and draw the first frame.
 function selectVolley(name) {
   const v = NV.volleys[name], P = prepVolley(v);
   VOL.cur = v;
@@ -1960,14 +2102,18 @@ function buildVolleyBase() {
   VOL.group.add(VOL.base);
 }
 
+// Show / hide the volley drawing and its chart.
 function showVolley(on) {
   VOL.show = on;
   $('cbVShow').checked = on;
   VOL.group.visible = on;
   $('volleyChart').style.display = on ? 'block' : 'none';
+  layoutOverlays();
   if (on) drawVolleyFrame();
 }
 
+// Play / pause (force = true / false to set it); playing shows the volley and restarts it from the beginning
+// if it had reached the end.
 function toggleVolleyPlay(force) {
   if (!VOL.cur) return;
   VOL.playing = force === undefined ? !VOL.playing : force;
@@ -2054,13 +2200,36 @@ function drawVolleyChart() {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.clearRect(0, 0, W, H);
   g.font = '10px system-ui, sans-serif';
-  const L = 34, R = W - 8, T1 = 16, B1 = 140, T2 = 166, B2 = H - 14;   // two plots: volley (top), currents (bottom)
+  // two plots: volley along the nerve (top, T1..B1) and stimulator currents in time (bottom, T2..B2); the
+  // split scales with the canvas height (220 px normally, down to 120 px on short screens, see layoutOverlays)
+  // (B1 = 140 at 220 px; at least 24 px are kept for the currents plot)
+  const L = 34, R = W - 8, T1 = 16, B1 = Math.min(Math.round(0.636 * H), H - 64), T2 = B1 + 26, B2 = H - 14;
   const zA = v.z_nodes[0], zB = v.z_nodes[P.nN - 1];
   const X = (z) => L + (z - zA) / (zB - zA) * (R - L);
   const Y = (y) => B1 - y / P.yMax * (B1 - T1);
+  // Text helpers: every label is measured, so that nothing overlaps or runs out of the box whatever the
+  // chart width (it shrinks with the window). fit() cuts a string with "…" to a maximum width in pixels;
+  // row() writes a left label, a centred label and a right label on one line, dropping the centred one
+  // (or using its short form) when there is no room for it.
+  const fit = (s, maxW) => {
+    if (g.measureText(s).width <= maxW) return s;
+    while (s.length > 1 && g.measureText(s + '…').width > maxW) s = s.slice(0, -1);
+    return s + '…';
+  };
+  const row = (y, left, centre, right, centreShort) => {
+    const wl = g.measureText(left).width, wr = g.measureText(right).width;
+    g.textAlign = 'left'; g.fillText(left, L + 2, y);
+    g.textAlign = 'right'; g.fillText(right, R, y);
+    const room = (R - wr - 12) - (L + 2 + wl + 12);
+    const c = [centre, centreShort].find((s) => s && g.measureText(s).width <= room);
+    g.textAlign = 'center';
+    if (c) g.fillText(c, (L + 2 + wl + 12 + R - wr - 12) / 2, y);
+    g.textAlign = 'left';
+  };
   // top: volley along the nerve
   g.fillStyle = '#d8e6f0';
-  g.fillText(`${v.title}   ·   t = ${VOL.t >= 0 ? '+' : ''}${VOL.t.toFixed(2)} ms`, L, 10);
+  const tLabel = `   ·   t = ${VOL.t >= 0 ? '+' : ''}${VOL.t.toFixed(2)} ms`;
+  g.fillText(fit(niceUnits(v.title), R - L - g.measureText(tLabel).width) + tLabel, L, 10);
   g.strokeStyle = 'rgba(255,255,255,0.25)';
   g.lineWidth = 1;
   g.beginPath(); g.moveTo(L, T1); g.lineTo(L, B1); g.lineTo(R, B1); g.stroke();
@@ -2072,13 +2241,13 @@ function drawVolleyChart() {
   (v.z_sites || []).forEach((z, i) => {
     g.strokeStyle = 'rgba(160,190,210,0.5)';
     g.beginPath(); g.moveTo(X(z), T1); g.lineTo(X(z), B1); g.stroke();
-    g.fillText(i === 0 ? 'proximal site' : 'distal site', X(z) + 3, T1 + 8);
+    // label right of the dashed line, or left of it when it would run past the right edge
+    const s = i === 0 ? 'proximal site' : 'distal site', w = g.measureText(s).width;
+    g.fillText(s, X(z) + 3 + w > R ? X(z) - 3 - w : X(z) + 3, T1 + 8);
   });
   g.setLineDash([]);
   g.fillStyle = '#7d8fa0';
-  g.fillText('brain ←', L + 2, B1 + 11);
-  g.fillText('→ muscle', R - 46, B1 + 11);
-  g.fillText('z along the nerve; fraction of each fascicle with an AP', L + 70, B1 + 11);
+  row(B1 + 11, 'brain ←', 'z along the nerve; fraction of each fascicle with an AP', '→ muscle', 'fraction with an AP');
   P.fasList.forEach((k) => {
     const p = VOL.prof[k];
     if (!P.recruited[k]) return;
@@ -2094,7 +2263,7 @@ function drawVolleyChart() {
   g.strokeStyle = 'rgba(255,255,255,0.25)';
   g.lineWidth = 1;
   g.beginPath(); g.moveTo(L, Ym); g.lineTo(R, Ym); g.stroke();
-  let ty = T2 - 4;
+  let tx = L + 2;                             // channel labels: one after the other on the line above the plot
   v.channels.forEach((ch) => {
     const peak = Math.max(1e-12, ...ch.pulses.map((p) => Math.abs(p[2])));
     const sgn = ch.kind === 'anode' ? 1 : -1;
@@ -2111,15 +2280,17 @@ function drawVolleyChart() {
     }
     g.stroke();
     g.fillStyle = g.strokeStyle;
-    g.fillText(`${ch.name}: ${peak.toFixed(peak < 10 ? 2 : 0)} µA peak`, L + 2 + (ch.kind === 'anode' ? (R - L) / 2 : 0), ty);
+    if (tx < R - 20) {                        // no room left: the remaining labels are dropped
+      const s = fit(`${niceUnits(ch.name)}: ${peak.toFixed(peak < 10 ? 2 : 0)} µA peak`, R - tx);
+      g.fillText(s, tx, T2 - 4);
+      tx += g.measureText(s).width + 14;
+    }
   });
   g.strokeStyle = '#ffcc55';
   g.lineWidth = 1.5;
   g.beginPath(); g.moveTo(Xt(VOL.t), T2); g.lineTo(Xt(VOL.t), B2); g.stroke();
   g.fillStyle = '#7d8fa0';
-  g.fillText(`${tA.toFixed(1)} ms`, L, H - 2);
-  g.fillText(`${tB.toFixed(1)} ms`, R - 34, H - 2);
-  g.fillText('stimulator currents (cathode ↓, anode ↑)', L + 70, H - 2);
+  row(H - 2, `${tA.toFixed(1)} ms`, 'stimulator currents (cathode ↓, anode ↑)', `${tB.toFixed(1)} ms`, 'currents');
 }
 
 /* ======================================================================================

@@ -135,6 +135,8 @@ R.counts = [nnz(fr) nnz(de) nnz(di) nnz(pi_)];   R.completed = nnz([rec.complete
 end
 
 function plotShapes(q, shapes, file)
+%PLOTSHAPES fascicle_shapes.png: the circular fascicles of the 3D model next to the random irregular shapes
+% with the same centres and areas (randomFascicleShapes).
 fig = figure(Visible="off", Color="w", Position=[40 40 1250 560]);   tl = tiledlayout(fig, 1, 2, TileSpacing="compact");
 F = q.geometry.fascicles_m;   th = linspace(0, 2*pi, 200)';   nv = shapes.nerve;
 ax = nexttile(tl);   hold(ax, 'on');   fill(ax, nv(:,1)*1e3, nv(:,2)*1e3, [0.97 0.91 0.77]);
@@ -155,6 +157,8 @@ title(tl, 'Same centres and areas');   exportgraphics(fig, file, Resolution=150)
 end
 
 function drawSection(ax, shapes, P, origP)
+%DRAWSECTION Nerve outline and fascicle outlines P [m] drawn in mm on axes ax; origP ([] = none) = the
+% undisplaced outlines, drawn dashed underneath (shows which fascicles the lead pushed aside).
 nv = shapes.nerve;   hold(ax, 'on');   fill(ax, nv(:,1)*1e3, nv(:,2)*1e3, [0.97 0.91 0.77], EdgeColor=[0.3 0.3 0.3]);
 for k = 1:numel(P)
     if ~isempty(origP), plot(ax, [origP{k}(:,1); origP{k}(1,1)]*1e3, [origP{k}(:,2); origP{k}(1,2)]*1e3, '--', Color=[0.5 0.5 0.5], LineWidth=0.8); end
@@ -166,6 +170,7 @@ axis(ax, 'equal');   xlim(ax, [-lim(1) lim(1)]);   ylim(ax, [-lim(2) lim(2)]);  
 end
 
 function drawLead(ax, o, st)
+%DRAWLEAD Lead path of one insertion o (blue), its pierced segments, and the four pads along it.
 plot(ax, o.path(:,1)*1e3, o.path(:,2)*1e3, '-', Color=[0.12 0.36 0.94], LineWidth=1.8);
 for s = 1:size(o.pierceSeg, 1)
     idx = o.pierceSeg(s,1):o.pierceSeg(s,2);   plot(ax, o.path(idx,1)*1e3, o.path(idx,2)*1e3, '-', Color=[0.85 0.1 0.1], LineWidth=3);
@@ -177,6 +182,7 @@ end
 end
 
 function plotBeforeAfter(shapes, o, sec, trial, model, file)
+%PLOTBEFOREAFTER <model>_before_after.png: one station before and after the example insertion o.
 st = o.st;   fig = figure(Visible="off", Color="w", Position=[40 40 1300 620]);   tl = tiledlayout(fig, 1, 2, TileSpacing="compact");
 ax = nexttile(tl);   drawSection(ax, shapes, shapes.polygons, []);   hold(ax, 'on');
 a = [st.entryS; st.tipS] * st.u;   plot(ax, a(:,1)*1e3, a(:,2)*1e3, '-', Color=[0.12 0.36 0.94], LineWidth=1.8);
@@ -193,6 +199,7 @@ exportgraphics(fig, file, Resolution=150);   close(fig);
 end
 
 function plotAllStations(shapes, ex, stations, model, file)
+%PLOTALLSTATIONS <model>_all_stations.png: the example insertion of each of the 8 stations.
 fig = figure(Visible="off", Color="w", Position=[40 40 1500 640]);   tl = tiledlayout(fig, 2, 4, TileSpacing="compact");
 for iS = 1:numel(stations)
     ax = nexttile(tl);   o = ex{iS};   drawSection(ax, shapes, o.polys, shapes.polygons);   drawLead(ax, o, o.st);
@@ -204,6 +211,8 @@ exportgraphics(fig, file, Resolution=140);   close(fig);
 end
 
 function plotStatistics(shapes, ip, stations, frac, pierceCount, forces, sens, model, file)
+%PLOTSTATISTICS <model>_statistics.png: outcome fractions per station (no contact / slid / displaced /
+% pierced), how often each fascicle is pierced, and (force model) the sensitivity to the hand force.
 nPan = 2 + ~isempty(forces);
 fig = figure(Visible="off", Color="w", Position=[40 40 570*nPan 520]);   tl = tiledlayout(fig, 1, nPan, TileSpacing="compact");
 ax = nexttile(tl);   b = bar(ax, frac*100, 'stacked');   cols = [0.75 0.85 0.95; 0.35 0.65 0.85; 0.95 0.75 0.25; 0.85 0.15 0.15];

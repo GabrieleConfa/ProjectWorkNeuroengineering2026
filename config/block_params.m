@@ -35,6 +35,9 @@ b.proximalSide = "negative z";              % [assumed] D-12
 % Distal contacts that are not solved are obtained from their solved mirror partner,
 % V_k'(x, y, z) = V_k(x, y, -z). Exact for our model: the section is the same along z (extrusion,
 % D-03) and the halves of the layout are mirror images (only the mesh differs: noise).
+% Since 2026-11-26 all 48 contacts are solved, so no profile is mirrored (a solved contact is never
+% replaced by its partner); and with the Gmsh model (bent leads, D-14) the two halves are no longer exact
+% mirror images, so keep every contact solved rather than relying on this option.
 b.useMirror = true;                         % [group 2026-11-25] D-12
 
 %% Fibres -----------------------------------------------------------------------------------------

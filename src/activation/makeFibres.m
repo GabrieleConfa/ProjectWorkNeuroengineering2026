@@ -1,5 +1,12 @@
 function fibres = makeFibres(patient, params, seed)
 %MAKEFIBRES Place myelinated fibres inside each fascicle and compute their nodes of Ranvier.
+%
+%   NOT IMPLEMENTED (final status, 2026-11-28). Skeleton from the first work plan (docs/work_plan.md),
+%   never filled in: the project did this job elsewhere. Calling it stops with an error. Instead:
+%   the fibre lines inside the fascicles are made by src/block/sampleFibreProfiles.m (FEM potential
+%   along each line, for the MRG simulations).
+%   Kept only as a record of the planned interface; not used by any pipeline.
+%
 %   fibres = makeFibres(patient, params, seed)
 %
 %   Owner: WP4. Status: SKELETON.

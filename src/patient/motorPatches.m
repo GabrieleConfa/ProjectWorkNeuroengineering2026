@@ -5,6 +5,12 @@ function patches = motorPatches(outline, motorFraction, rs, margin_m) % Random "
 % total area is motorFraction of the fascicle area (assuming that fibre number is proportional to area) are placed at random,
 % without overlap and inside the outline (margin_m from the border). The patches do NOT change the conductivity of the tissue
 % (the endoneurial conductivity is an effective value that already includes the axons): they only say where the motor fibres run.
+%% Inputs / outputs
+%   outline        Nx2 outline of the fascicle [m]
+%   motorFraction  fraction (0..1) of the fascicle area covered by motor patches
+%   rs             RandStream (reproducibility)
+%   margin_m       minimum distance of a patch from the fascicle border [m] (default 10 um)
+%   patches        cell array of 24x2 elliptical outlines [m] (fewer than planned if a patch could not be placed in 400 tries)
 if nargin<4, margin_m = 10e-6; end
 A = polyarea(outline(:,1),outline(:,2)); target = motorFraction*A; patches = {}; % Fascicle area and area to be covered by patches.
 if target<=0, return; end

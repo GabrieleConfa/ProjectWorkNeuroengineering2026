@@ -1,5 +1,13 @@
 function af = activatingFunction(potentialFcn, fibres)
 %ACTIVATINGFUNCTION Activating function at the nodes of each fibre, for a 1 A stimulus.
+%
+%   NOT IMPLEMENTED (final status, 2026-11-28). Skeleton from the first work plan (docs/work_plan.md),
+%   never filled in: the project did this job elsewhere. Calling it stops with an error. Instead:
+%   the activating function is computed in scripts/export_viewer_data.m (viewer maps), in the preview
+%   of src/main/main_pipeline_3d.m and in src/block/anode_design.py (unit_af); fibre activation itself is
+%   simulated with the MRG model in NEURON (src/block/, notebooks/).
+%   Kept only as a record of the planned interface; not used by any pipeline.
+%
 %   af = activatingFunction(potentialFcn, fibres)
 %
 %   Owner: WP4. Status: SKELETON.

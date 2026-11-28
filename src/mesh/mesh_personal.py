@@ -1,4 +1,31 @@
-"""Conforming linear tetrahedra for the finite rigid contacts. CAD units are mm."""
+"""Conforming linear tetrahedra for the 3D nerve model (Gmsh model, decision D-14). CAD units are mm.
+
+Called by src/mesh/meshPersonalDevice.m as
+    python mesh_personal.py <device.json> <mesh.mat>
+MATLAB writes the geometry to device.json (all lengths in mm); this script builds the solids with the
+OpenCASCADE kernel of gmsh, meshes them and writes mesh.mat back for the MATLAB FEM assembly.
+
+What is built (solids, each with a "role" = (tissue code, fascicle number, contact id)):
+    3 epineurium   the nerve, a ruled loft through the transverse profiles flattened by the cuff pads
+    4 muscle       the surrounding cylinder (radius = outerRadiusFactor x nerve radius)
+    7 PDMS sleeve  the oval insulating sleeve around the nerve over the cuff length (insertion mode)
+    1 endoneurium  one solid per fascicle (k = fascicle number), lofted through its outline at every axial
+                   level where the lead displaces it
+    6 PDMS lead    the body of the intraneural lead of each station (polygon band x axial thickness)
+    5 contact      one box per active site (id = contact number), placed and rotated as in MATLAB
+The solids overlap; occ.fragment splits them into conforming cells and every cell takes the role of the
+innermost solid (priority: contact > lead > endoneurium > epineurium > sleeve > muscle).
+
+Mesh size: fine next to the contacts (Distance + Threshold fields), graded with the distance from the
+nerve axis and along z away from the electrode zone (MathEval), optionally refined on the pad edges.
+Elements are made longer along the nerve by meshing a geometry compressed by axial_scale = 0.5 along z
+and stretching the nodes back afterwards: the field varies slowly along the fibres, so this halves the
+number of elements without losing accuracy across the nerve.
+
+Output (mesh.mat): X (3 x nNodes, metres), T (4 x nTets, 1-based node indices, positive volumes checked),
+elemCell (cell of each element, 1-based) and roles (one row per cell: tissue, fascicle, contact id).
+Requirements: gmsh, numpy, scipy (python -m pip install gmsh numpy scipy).
+"""
 import json  # Read the MATLAB device description.
 import math  # Rotate CAD coordinates in radians.
 import os  # Read the optional diagnostic switch.
@@ -8,10 +35,17 @@ import numpy as np  # Store nodal coordinates and tetrahedral connectivity.
 from scipy.io import savemat  # Return the mesh as a MATLAB data file.
 
 def poly_wire(occ, xy, z):  # Closed polygon wire at height z.
+    """Closed polygon (list of (x, y) vertices, mm) at height z [mm] as an OpenCASCADE wire; returns its tag."""
     points = [occ.addPoint(x, y, z) for x, y in xy]  # Vertices.
     return occ.addWire([occ.addLine(points[i], points[(i+1)%len(points)]) for i in range(len(points))])  # Closed wire.
 
 def build(cfg):  # Build and label the shared contact mesh.
+    """Build the solids described by cfg (the decoded device.json), mesh them, return the mesh dict.
+
+    Steps: 1. solids (nerve, muscle, sleeve, fascicles, leads, contacts), 2. conforming fragments and
+    their roles, 3. mesh-size fields, 4. tetrahedra, signed-volume check and conversion to MATLAB
+    arrays (see the module docstring for the output fields).
+    """
     # 1. Nerve, fascicles, muscle and rigid pad solids
     occ = gmsh.model.occ  # Select the solid geometry kernel.
     length, cuff, radius, wall = cfg["domain"]  # Read the axial lengths and surrounding radii.
@@ -20,6 +54,7 @@ def build(cfg):  # Build and label the shared contact mesh.
     cuff *= axial_scale  # Scale the cuff length by the same factor.
     z0 = -length / 2  # Centre the device on the axial origin.
     def prism(face):  # Extrude a fascicle profile across the physical domain.
+        """Extrude a planar face over the whole (scaled) length; returns the tag of the solid."""
         return next(tag for dim, tag in occ.extrude([(2, face)], 0, 0, length) if dim == 3)
     levels = np.array(cfg["sectionZ"]) * axial_scale  # Convert station positions into meshing coordinates.
     directions = np.asarray(cfg["rays"])  # Match each vertex with its counterpart on the next section.

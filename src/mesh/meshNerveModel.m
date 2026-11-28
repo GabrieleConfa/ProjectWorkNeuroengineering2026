@@ -1,5 +1,12 @@
 function nerveModel = meshNerveModel(geom3, patient, sites, params)
 %MESHNERVEMODEL Create the PDE model on the 3D geometry and generate the tetrahedral mesh.
+%
+%   NOT IMPLEMENTED (final status, 2026-11-28). Skeleton from the first work plan (docs/work_plan.md),
+%   never filled in: the project did this job elsewhere. Calling it stops with an error. Instead:
+%   meshing is done in src/main/build3DModel.m (meshPersonalDevice + mesh_personal.py for Gmsh,
+%   buildNerveGeometry3D for the PDE Toolbox mesher).
+%   Kept only as a record of the planned interface; not used by any pipeline.
+%
 %   nerveModel = meshNerveModel(geom3, patient, sites, params)
 %
 %   Owner: WP2. Status: SKELETON.

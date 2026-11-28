@@ -73,6 +73,7 @@ classdef testThinLayerFEM < matlab.unittest.TestCase
         end
 
         function interpolationExactForLinear(tc)
+            % interpolateP1 must reproduce a linear field exactly at arbitrary points
             mm = tc.mm;
             g = generateMesh(fegeometry(multicuboid(mm, mm, mm)), Hmax=0.4*mm, GeometricOrder="linear");
             X = g.Mesh.Nodes;   T = g.Mesh.Elements;

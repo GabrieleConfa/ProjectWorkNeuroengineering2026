@@ -13,6 +13,7 @@ classdef testCuffContacts < matlab.unittest.TestCase
 
     methods (TestClassSetup)
         function load(tc)
+            % the provided 48-contact layout, with the 50 um contact thickness used by the 3D model
             p = pw6_3d_params();
             tc.sites = loadActiveSites(p.electrode.sitesFile, 1.7e-3);
             tc.sites.thickness_m(:) = p.electrode.thicknessOverride_m;
@@ -21,6 +22,7 @@ classdef testCuffContacts < matlab.unittest.TestCase
 
     methods (Test)
         function circleGivesRadialPlacement(tc)
+            % on a circle the tangent pad must sit radially, as in the original layout: centre depth = edge indent + sagitta of the pad chord
             R = 1.711e-3;
             pat = struct('nerveSemiAxes_m', [R R], 'nerveRotation_deg', 0);
             [s, fit] = placeCuffContacts(tc.sites, pat, tc.edge);
@@ -35,6 +37,7 @@ classdef testCuffContacts < matlab.unittest.TestCase
         end
 
         function rotatedOvalFaceTangentAndSeated(tc)
+            % on a rotated oval: face normal perpendicular to the outline tangent at the landmark, both side edges inside the nerve, the shallower one exactly edgeIndent deep
             pat = struct('nerveSemiAxes_m', [2.173e-3 1.347e-3], 'nerveRotation_deg', 23);
             [s, fit] = placeCuffContacts(tc.sites, pat, tc.edge);
             for k = find(s.type == "cuff")'
@@ -72,6 +75,7 @@ classdef testCuffContacts < matlab.unittest.TestCase
         end
 
         function shankContactsUntouched(tc)
+            % placeCuffContacts must move only the cuff pads, never the intraneural (shank) contacts
             pat = struct('nerveSemiAxes_m', [2.173e-3 1.347e-3], 'nerveRotation_deg', 0);
             s = placeCuffContacts(tc.sites, pat, tc.edge);
             sh = tc.sites.type == "intraneural";

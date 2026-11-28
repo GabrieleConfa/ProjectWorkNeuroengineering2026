@@ -4,6 +4,7 @@ classdef testProjectSetup < matlab.unittest.TestCase
 
     methods (Test)
         function paramsLoad(tc)
+            % default_params must define every parameter group used by the pipeline
             p = default_params();
             for f = ["geometry" "domain" "materials" "electrode" "mesh" ...
                      "stim" "activation" "safety" "patients"]
@@ -12,6 +13,7 @@ classdef testProjectSetup < matlab.unittest.TestCase
         end
 
         function sitesFileExists(tc)
+            % the provided active-site layout must be where the config says
             p = default_params();
             tc.verifyTrue(isfile(p.electrode.sitesFile), p.electrode.sitesFile);
         end

@@ -28,7 +28,9 @@
 %     PERINEURIUM = thin layer on the fascicle boundary (potential jump, sheet resistance rho*t);
 %   - active contact: high-conductivity cell with a uniform source I/volume (equipotential, carries
 %     exactly I); idle contacts insulating (as in 2D);
-%   - outer muscle surface (and the end planes, by default) grounded.
+%   - outer (lateral) muscle surface grounded (p.domain.lateralBC); end planes z = +/- L/2 insulated
+%     by default since 2026-11-27 (p.domain.endBC, D-17: grounded ends made the cut fibre ends fire
+%     under an anode in the block study; "ground" is still available).
 %   The FE system is assembled by the project's own P1 code (src/fem/), checked by
 %   tests/testThinLayerFEM.m, and solved by pcg (D-14) for each contact.
 %

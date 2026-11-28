@@ -9,6 +9,7 @@ classdef testMakePatient < matlab.unittest.TestCase
 
     methods (TestClassSetup)
         function make(tc)
+            % reference patient of the 3D configuration, seed 1
             tc.p = pw6_3d_params();
             tc.P1 = makePatient("T1", 1, tc.p);
         end
@@ -16,11 +17,13 @@ classdef testMakePatient < matlab.unittest.TestCase
 
     methods (Test)
         function reproducibleFromSeed(tc)
+            % the same seed must give exactly the same fascicles (a patient is regenerable from its seed)
             P1b = makePatient("T1", 1, tc.p);
             tc.verifyEqual(P1b.fascicles, tc.P1.fascicles);
         end
 
         function literatureTotals(tc)
+            % the aggregate anatomy of the generator matches the literature targets in the config (nerve area, roundness, fascicle count, total and largest fascicle area)
             g = tc.p.geometry.generator;   f = tc.P1.fascicles;   ax = tc.P1.nerveSemiAxes_m;
             tc.verifyEqual(height(f), g.nFascicles);
             tc.verifyEqual(pi * tc.P1.nerveRadius_m^2, g.nerveArea_m2, 'RelTol', 1e-12);
@@ -63,6 +66,7 @@ classdef testMakePatient < matlab.unittest.TestCase
         end
 
         function differentSeedsDiffer(tc)
+            % another seed must give another layout
             P2 = makePatient("T2", 2, tc.p);
             tc.verifyNotEqual(P2.fascicles.x_m, tc.P1.fascicles.x_m);
         end

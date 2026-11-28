@@ -12,3 +12,8 @@ python scripts/notebook_generators/make_check_nb.py  notebooks/block_model_check
 
 Regenerating overwrites the notebook and clears its outputs. Edit the generator, not the notebook,
 when the change should last.
+
+Checked on 2026-11-28 (final review): each generator reproduces its committed notebook cell by cell,
+including the header comment at the top of every code cell (what the cell does, what it produces).
+`block_anode_cathode.ipynb` and `block_anode_configurations.ipynb` have no generator (written by hand):
+edit those notebooks directly.

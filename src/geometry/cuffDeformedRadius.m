@@ -1,4 +1,17 @@
 function radii_m = cuffDeformedRadius(p, cuffSites, z_m, directions,paired) % Indent the nerve only under each finite cuff pad.
+%% Purpose
+% Radius of the nerve surface after the rigid cuff pads have flattened it. Far from a pad the surface is the undeformed ellipse
+% (nerveBoundaryRadius); under a pad it is cut by the pad plane (cuffContactPlane); around the pad the indentation fades to
+% zero with a smoothstep 3s^2 - 2s^3 over cuffTransition_m along z and cuffLateralTransition_m across the pad.
+%% Inputs / outputs
+%   p           parameter struct (quicklook3DParams): nerve ellipse and p.electrode.cuffTransition_m,
+%               cuffLateralTransition_m [m] (plus what cuffContactPlane needs)
+%   cuffSites   table rows of the cuff contacts (z_m, sideZ_m, sideXY_m [m], theta_deg, id)
+%   z_m         axial positions [m] (vector)
+%   directions  K x 2 unit vectors in the cross-section (rays from the nerve centre)
+%   paired      false (default): radii on the grid numel(z_m) x K; true: one z per direction (numel(z_m) == K), e.g.
+%               the nodes of a mesh, output 1 x K
+%   radii_m     surface radius along each ray [m]
 %% 1. Start from the uncompressed nerve outline
 z_m = z_m(:); % Treat each axial sample as one row.
 base_m = nerveBoundaryRadius(p,directions); % Find the circular or oval outline along each ray.

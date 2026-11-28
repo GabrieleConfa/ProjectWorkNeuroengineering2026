@@ -1,4 +1,19 @@
 function strip = planQuicklookStrip(p, sites, cuffSites, mode) % Place one transverse strip and its contact faces.
+%% Purpose
+% Shape of the intraneural lead ("strip") of one station and the faces of its four pads. Three planners, chosen in order:
+%   1. mode "deflect" + an insertion scenario in p.geometry.scenario (production, D-14): the random insertion of
+%      insertionScenario, returned by scenarioStrip;
+%   2. mode "deflect" + p.electrode.routingModel = "beam": elastic equilibrium of the strip (equilibriumStrip);
+%   3. otherwise (legacy): a family of smooth lateral deflections of the straight lead is searched for the first one that
+%      clears every fascicle (straight if possible), as in the first preview of the device.
+%% Inputs / outputs
+%   p          quicklook parameter struct (quicklook3DParams), lengths in m
+%   sites      table rows of the four intraneural pads of the station (loadActiveSites format)
+%   cuffSites  table rows of the two cuff pads of the station (they flatten the nerve, cuffDeformedRadius)
+%   mode       "deflect" (planners 1-2) or any other string (legacy planner 3)
+%   strip      struct: path_m (centreline, K x 3 [m]), axisXY (insertion direction), entryAngle_deg, section, offset_m
+%              (largest sideways deviation [m]), envelopeFascicles, padFaces_m (4 x 3 x nPads face vertices [m]), energy_J,
+%              EI_Nm2 and (planner 1) fascicles / displaced
 if mode=="deflect" && isfield(p.geometry,'scenario') && ~isempty(p.geometry.scenario) % Insertion mode: use the random insertion scenario.
     strip = scenarioStrip(p,sites,cuffSites); return % Lead from the entry wall to the opposite wall, pads placed along it.
 end

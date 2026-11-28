@@ -62,15 +62,24 @@ _W: dict = {}
 
 
 def _init_worker(h5_path: str, params: dict, diam_um: float):
-    f = h5py.File(h5_path, "r")
-    _W["z"] = f["z_m"][:].ravel()
-    _W["V"] = f["V_perA"][:]                       # (nC, nL, nZ) float32, ~25 MB
-    _W["cid"] = list(f["contact_id"][:].ravel().astype(int))
+    """Run once in every worker process: load the FEM profiles into memory and remember the parameters.
+
+    h5_path  results/block/<id>_fibre_profiles.h5;  params  the block parameters (JSON copy of
+    config/block_params.m);  diam_um  fibre diameter [um]. The MRG fibres are built lazily by _fibre.
+    """
+    with h5py.File(h5_path, "r") as f:                 # everything is copied into memory ([:]): the file is closed
+        _W["z"] = f["z_m"][:].ravel()                  # sample points along the nerve [m]
+        _W["V"] = f["V_perA"][:]                       # (nC, nL, nZ) float32 [V per A], ~25 MB
+        _W["cid"] = list(f["contact_id"][:].ravel().astype(int))
     _W["p"], _W["diam"], _W["fibres"] = params, diam_um, {}
 
 
 def _fibre(z_align_m: float) -> MRGFibre:
-    key = round(z_align_m * 1e9)
+    """MRG fibre (NEURON) whose node of Ranvier sits at z_align_m [m]; built once per alignment and reused.
+
+    With nodeAlignment = "proximalStation" all fibres share one alignment, so only one fibre is built.
+    """
+    key = round(z_align_m * 1e9)                       # alignment rounded to 1 nm as dictionary key
     if key not in _W["fibres"]:
         m = _W["p"]["mrg"]
         _W["fibres"][key] = MRGFibre(_W["diam"], m["fibreLength_m"], z_align_m, MECH_DIR, m["temperature_C"])
@@ -119,6 +128,10 @@ def task_scenario(args):
 
 
 def task_record(args):
+    """One fibre with the membrane voltage recorded at every node (for the raster plots).
+
+    args = (i, z_align_m, chans, t_stop_s); returns (t_s, v_V (nodes x time), z of the nodes [m]).
+    """
     i, z_align_m, chans, t_stop_s = args
     _, _, res, fib = _simulate(i, z_align_m, chans, t_stop_s, record=True)
     return res["t_s"], res["v_V"], fib.z_node_m
@@ -126,6 +139,7 @@ def task_record(args):
 
 # ---------------------------------------------------------------------------------------------------
 def main():
+    """Parse the command line, run steps 0-5 of the module docstring on a process pool, write the outputs."""
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--patient", default="UA01")
     ap.add_argument("--pattern", default=None, help="name of a pattern in block_params.m (default: first)")
@@ -182,7 +196,8 @@ def main():
     out = {}                                             # (label, fibre) -> (APs brain, APs muscle)
 
     def run_scenarios(ex, scen, fibres):
-        jobs = [(int(i), zal[i], lab, ch, ts) for lab, ch, ts in scen for i in fibres]
+        """Run every scenario (label, channels, t_stop) on every fibre in parallel; results go to `out`."""
+        jobs =[(int(i), zal[i], lab, ch, ts) for lab, ch, ts in scen for i in fibres]
         for i, lab, n_p, n_d in ex.map(task_scenario, jobs, chunksize=4):
             out[(lab, i)] = (n_p, n_d)
 
@@ -280,7 +295,9 @@ def main():
 
         # ---- success of each scenario ----------------------------------------------------------------
         def stats(lab, fibres):
-            fibres = [int(i) for i in fibres if (lab, int(i)) in out]
+            """Percentages of `fibres` for scenario `lab`: AP to the muscle, brain APs as expected / extra /
+            lost, success (no AP to the muscle AND the brain receives what the proximal pulse alone gives)."""
+            fibres =[int(i) for i in fibres if (lab, int(i)) in out]
             r = np.array([out[(lab, i)] for i in fibres]).reshape(-1, 2)
             e = expect_brain[fibres]
             n = len(fibres)
@@ -301,6 +318,8 @@ def main():
         # example fibre and rasters
         cand = np.flatnonzero((fas == target) & recP)
         iex = int(cand[np.argmin(np.where(np.isfinite(thP[cand]), thP[cand], np.inf))])
+        # collision delay shown in the raster: the swept delay closest to half the travel time over the gap,
+        # with the rule of thumb CV ~ 5 m/s per um of diameter (about 50 m/s for the 10 um MRG fibre)
         d_ex = min(pu["delaySweep_s"], key=lambda d: abs(d - 0.5 * gap / (5.0 * diam)))
         rasters = [("proximal only", [stim], t_single),
                    (f"collision: distal repeat after {d_ex*1e3:.2f} ms",
@@ -335,6 +354,7 @@ def main():
           f"the proximal pulse alone\n{hdr}")
 
     def line(lab, s):
+        """One row of the printed table (output of stats)."""
         print(f"{lab:40s} {s['n']:6d} {s['success_pct']:7.0f}% {s['muscle_pct']:6.0f}% {s['brain_ok_pct']:8.0f}% "
               f"{s['brain_extra_pct']:5.0f}% {s['brain_lost_pct']:4.0f}%")
 
@@ -374,6 +394,7 @@ def main():
 
 # ---------------------------------------------------------------------------------------------------
 def _plt():
+    """matplotlib.pyplot with the non-interactive Agg backend (figures are only saved to files)."""
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -381,6 +402,11 @@ def _plt():
 
 
 def plot_raster(path, rec, titles, z_prox, z_dist, i, fasc, diam):
+    """<tag>_raster.png: membrane voltage (colour) vs time (x) and node position (y), one panel per scenario.
+
+    rec  list of (t_s, v_V, z_node_m) from task_record;  titles  one per panel;  z_prox, z_dist  the two
+    sites [m] (dashed lines);  i, fasc  fibre number and its fascicle;  diam  fibre diameter [um].
+    """
     plt = _plt()
     fig, axs = plt.subplots(1, len(rec), figsize=(4.6 * len(rec), 4.6), sharey=True)
     for ax, (t, v, zn), ttl in zip(np.atleast_1d(axs), rec, titles):
@@ -399,9 +425,15 @@ def plot_raster(path, rec, titles, z_prox, z_dist, i, fasc, diam):
 
 
 def plot_sweeps(path, summary, pu, p, n, gap, cv):
+    """<tag>_sweeps.png: left, collision outcome vs delay of the distal repeat; right, anodal block vs current.
+
+    summary  the summary dict (scenario statistics);  pu, p  pulse block and all parameters;  n  number of
+    excited fibres;  gap  distance between the sites [m];  cv  conduction velocity [m/s] (dotted line).
+    """
     plt = _plt()
     S = summary["scenarios"]
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(11, 4))
+    # left: collision scenarios, one point per delay of the distal repeat
     d = np.array(pu["delaySweep_s"]) * 1e3
     lab = [f"collision delay {x:.2f} ms" for x in d]
     a1.plot(d, [S[l]["muscle_pct"] for l in lab], "o-", label="AP reaches the muscle (want 0)")
@@ -413,6 +445,7 @@ def plot_sweeps(path, summary, pu, p, n, gap, cv):
     a1.set(xlabel="delay of the distal repeat [ms]", ylabel=f"% of the {n} excited fibres",
            title="Collision: same pattern repeated distally", ylim=(-5, 105))
     a1.legend(fontsize=8, loc="center right")
+    # right: anodal block scenarios against the anodal current (factor x I_stim), and the anode alone
     fa = np.array(p["anodalFactors"], dtype=float)
     lab = [f"anodal x{x:g}" for x in fa]
     a2.semilogx(fa * summary["I_stim_uA"], [S[l]["muscle_pct"] for l in lab], "o-", label="AP reaches the muscle")
@@ -428,6 +461,11 @@ def plot_sweeps(path, summary, pu, p, n, gap, cv):
 
 
 def plot_cathodal(path, cstat, cb, I_stim, n, target, gap, cv):
+    """<tag>_cathodal.png: success of the cathodal block, current (y) x onset delay (x), one panel per width.
+
+    cstat  list of (stats, scenario tuple);  cb  the "cathodal" parameter block;  I_stim  proximal current
+    [A];  n  fibres in the target set;  target  fascicle number;  gap [m], cv [m/s] for the arrival line.
+    """
     plt = _plt()
     W, D, Fa = cb["widths_s"], cb["delays_s"], cb["factors"]
     grid = {(c[4], c[5], c[3]): s["success_pct"] for s, c in cstat}

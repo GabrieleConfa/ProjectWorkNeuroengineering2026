@@ -204,6 +204,8 @@ def export_viewer_volley(out_dir, name: str, title: str, ap: list, *, fibre_x_m,
         raise ValueError(f"volley name {name!r}: use letters, digits, _ . - + only")
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    # every AP crossing as one event (fibre, node, time in ms from t_ref_s): a compact flat list the viewer
+    # indexes once (prepVolley in viewer/index.html)
     f_idx, n_idx, t_ms = [], [], []
     for i, nodes in enumerate(ap):
         for n, times in enumerate(nodes):
@@ -211,6 +213,7 @@ def export_viewer_volley(out_dir, name: str, title: str, ap: list, *, fibre_x_m,
                 f_idx.append(i)
                 n_idx.append(n)
                 t_ms.append(round((float(t) - t_ref_s) * 1e3, 4))
+    # geometry in mm, times in ms, currents in uA: the units of the viewer
     data = {
         "name": name, "title": title, "note": note,
         "target": None if target is None else int(target),
@@ -282,6 +285,7 @@ def animate_profiles(path, curves: dict, frame_t_s: np.ndarray, z_nodes_m: np.nd
     fig.tight_layout()
 
     def update(k):
+        """Animation frame k: move every fascicle curve to its profile at frame_t_s[k], update the clock."""
         for lab, arr in curves.items():
             lines[lab].set_ydata(arr[k])
         clock.set_text(f"t = {(frame_t_s[k] - t_ref_s) * 1e3:+.2f} ms")

@@ -1,4 +1,18 @@
 function [p, patient, sites] = personalDevice3D(p,q) % Transfer the editable preview geometry to the full conduction model.
+%% Purpose
+% Bridge between the geometry of the Gmsh model (Marco's "personal device" preview, D-14) and the FEM pipeline: it places the
+% 48 contacts where the device really sits in that geometry. The four intraneural pads of each station are put on the bent
+% PDMS lead of that station (planQuicklookStrip -> insertion scenario, pads tangent to the lead), the two cuff pads are rigid
+% flat faces seated on the oval nerve (cuffContactPlane). Called by build3DModel (mesher "gmsh") after gmshAnatomy.
+%% Inputs / outputs
+%   p        project parameters (config/pw6_3d_params.m)
+%   q        Gmsh-model parameters with the anatomy and the insertion scenario of the patient (gmshAnatomy)
+%   p        the same struct with domain.nerveLength_m (= q.domain.length_m), electrode.cuffIndent_m, solver options
+%            (all 48 contacts, pcg) and personalGeometry = q. build3DModel copies only the fields it needs.
+%   patient  struct in the format of makePatient (fascicle table x_m, y_m, rEndo_m, tPeri_m, a_m, b_m, angle_deg [m, deg]);
+%            build3DModel uses the patient of gmshAnatomy instead, this one is kept for older callers
+%   sites    contact table (loadActiveSites format, 48 rows) with the moved centre_m [m], orientation n, w and phi_deg,
+%            r_m, theta_deg; thickness_m = p.electrode.thicknessOverride_m
 %% 1. Use the same provisional anatomy in the mesh and in the contact planner
 validateQuicklookAnatomy(q); % Reject overlapping anatomical regions before planning.
 f = q.geometry.fascicles_m; % Read the ten editable fascicle outlines in metres.

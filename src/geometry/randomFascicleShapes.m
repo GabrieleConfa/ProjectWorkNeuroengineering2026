@@ -3,6 +3,12 @@ function shapes = randomFascicleShapes(q, ip, seed) % Replace the circular fasci
 % Fascicles are neither circles nor ellipses (tutor). Each shape keeps the area and the centre of the circular
 % layout in q.geometry.fascicles_m, but gets a random elongation (roundness drawn from the histology statistics) and a
 % random smooth irregularity (radial Fourier harmonics). Shapes never overlap and stay inside the nerve.
+%% Inputs / outputs
+%   q       quicklook parameter struct: q.geometry.fascicles_m (rows [x y a b angle_deg], m), tPeri_m [m], nerve ellipse
+%   ip      insertionParams(): roundnessMean, roundnessSD (Pusnik 2025), harmonicAmplitude, fascicleGap_m [m]
+%   seed    seed of the random stream (same seed -> same shapes)
+%   shapes  struct: polygons (n x 1 cell of 128 x 2 outlines [m]), nerve (720 x 2 outline [m]), roundness (n x 1,
+%           4A/(pi*major^2)), area_m2 (n x 1, equal to the circular areas), attempts (draws used per fascicle)
 %% 1. Inputs and containers
 g = q.geometry; F = g.fascicles_m; n = size(F,1); % Circular layout: [x y a b angle] per fascicle.
 nPts = 128; th = (0:nPts-1)'*2*pi/nPts; % Vertices per outline (dense enough for distances and meshing).

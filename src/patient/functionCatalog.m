@@ -6,7 +6,8 @@ function T = functionCatalog() % Functional groups carried by the median nerve a
 % Columns: id (short key), name, kind (motor or sensory), target (muscles or skin), exit_pctForearm (where the branch leaves
 % the trunk, % of forearm length, 0 = wrist, 100 = elbow; NaN = not in the forearm or not given), priorWeight (share of the motor
 % or sensory fibres of the nerve: ASSUMED, uniform, no data), colour (RGB, figures and viewer), evidence.
-id = ["PT";"FCRPL";"FDS";"AIN";"THENAR";"PCB";"DIGITAL"]; % Keys used in patient files.
+% No inputs. Output T: table with one row per group (7 rows); its row order is the order of every "composition" vector.
+id =["PT";"FCRPL";"FDS";"AIN";"THENAR";"PCB";"DIGITAL"]; % Keys used in patient files.
 name = ["Pronator teres";"Flexor carpi radialis and palmaris longus";"Flexor digitorum superficialis";"Anterior interosseous (FDP, FPL, pronator quadratus)"; ...
         "Thenar and lumbrical muscles (recurrent branch)";"Palmar cutaneous branch";"Digital sensory (thumb, index, middle, half ring)"];
 kind = ["motor";"motor";"motor";"motor";"motor";"sensory";"sensory"];

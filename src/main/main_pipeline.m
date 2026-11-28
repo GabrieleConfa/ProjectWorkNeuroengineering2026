@@ -429,12 +429,13 @@ elemTissue = zeros(size(tri, 1), 1);
 for f = 1:numel(faceTissue)
     elemTissue(findElements(msh, "region", "Face", f)) = faceTissue(f);
 end
+% left: tissues coloured, contact numbers and fascicle labels; right: zoom of the mesh around one inner contact
 figure(Color="w", Position=[40 80 1300 540], Name="Geometry and mesh");
 tl = tiledlayout(1, 2, TileSpacing="compact");   title(tl, figTitle, FontWeight="bold");
 nexttile
 patch(Faces=tri, Vertices=xy, FaceVertexCData=col(elemTissue,:), FaceColor="flat", EdgeColor="none");
 hold on; drawOutlines(geo);
-for k = 1:height(S)
+for k = 1:height(S)                                 % contact numbers, placed 0.13 mm beside each contact
     lp = 1e3 * (S.centre_m(k,1:2) + 0.13e-3 * S.n(k,1:2) * (1 - 2*(S.type(k) == "cuff")));
     text(lp(1), lp(2), string(S.id(k)), Color="r", FontWeight="bold", HorizontalAlignment="center");
 end

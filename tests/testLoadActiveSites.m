@@ -11,6 +11,7 @@ classdef testLoadActiveSites < matlab.unittest.TestCase
 
     methods (TestClassSetup)
         function loadData(tc)
+            % load the provided layout once for all checks
             root = fileparts(fileparts(mfilename('fullpath')));
             tc.sites = loadActiveSites(fullfile(root, 'data', 'electrode', 'sites.mat'), tc.R_m);
         end

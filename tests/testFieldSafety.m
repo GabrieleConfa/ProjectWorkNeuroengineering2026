@@ -7,6 +7,7 @@ classdef testFieldSafety < matlab.unittest.TestCase
 
     methods (Test)
         function linearPotentialExactField(tc)
+            % a linear potential has the exact field -grad V in every element; the volumes add up to the cube
             rng(5);
             P = [rand(300, 3); dec2bin(0:7) - '0'] * 1e-3;     % points in a 1 mm cube + its corners [m]
             T = delaunay(P)';   X = P';
@@ -18,6 +19,7 @@ classdef testFieldSafety < matlab.unittest.TestCase
         end
 
         function exposedVolumeReadsCurve(tc)
+            % exposed volume read from the cumulative curve, and scaled with the current (linear model)
             fx = struct('tissue', "t", 'E_perA', {{[30 20 10]}}, 'cumVol_m3', {{[1 3 6]}});
             tc.verifyEqual(exposedVolume(fx, 20, 1), 3);     % two elements have |E| >= 20 V/m per A
             tc.verifyEqual(exposedVolume(fx, 20, 2), 6);     % at 2 A all three exceed 20 V/m

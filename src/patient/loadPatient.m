@@ -3,6 +3,11 @@ function patient = loadPatient(file) % Read a patient from a JSON file. Missing 
 % The file is the single entry point for patient-specific data. Minimum: id, units "m", the nerve outline, tPeri_m and the
 % outline of every fascicle. Optional: function of each fascicle (either "function": "AIN" or a full "composition"), motor
 % fraction, motor patches, orientation. Everything optional that is missing is marked as unknown, and the model keeps working.
+%% Inputs / outputs
+%   file     path of the JSON file (format: docs/patient_data.md; all coordinates in m)
+%   patient  patient struct: id, source, seed, units = 'm', provenance, orientation, nerve.outline (Nx2 m) and semiAxes_m,
+%            tPeri_m (perineurium thickness [m]), fascicles (id, outline Nx2 [m], area_m2, roundness, composition,
+%            motorFraction, patches), functionScenario/functionSource ('measured', or 'unknown' if a function is missing)
 s = jsondecode(fileread(file)); cat = functionCatalog(); n = numel(s.fascicles);
 if ~isfield(s,'source'), s.source = 'measured'; end, if ~isfield(s,'seed'), s.seed = NaN; end, if ~isfield(s,'provenance'), s.provenance = ''; end
 if ~isfield(s,'orientation'), s.orientation = struct('x','unknown','y','unknown','status','unknown'); end

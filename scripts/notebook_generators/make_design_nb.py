@@ -8,10 +8,12 @@ cells = []
 
 
 def md(s):
+    """Add a markdown cell (the explanation the notebook reader sees)."""
     cells.append(("markdown", s.strip("\n")))
 
 
 def code(s):
+    """Add a code cell (run by the user in Jupyter)."""
     cells.append(("code", s.strip("\n")))
 
 
@@ -77,6 +79,7 @@ md(r'''
 ''')
 
 code(r'''
+# Imports, project paths (the notebook is opened from notebooks/), NEURON check, output folder.
 import json, math, os, sys, time
 from pathlib import Path
 
@@ -162,6 +165,9 @@ the target fibres are the fibres of the target fascicle that fire at the maximum
 ''')
 
 code(r'''
+# Unit activating functions A (contacts x fibres x nodes, for 1 A on each contact, anode_design.unit_af),
+# the shared MRG fibre, the proximal thresholds (reused from block_volley.ipynb when its cache is valid),
+# the target fascicle and the maximum selective proximal current.
 H5_PATH = BLOCK_DIR / f"{PATIENT}_fibre_profiles.h5"
 Z_PROX_m = None
 with h5py.File(H5_PATH, "r") as f:
@@ -220,6 +226,8 @@ blocked: so a design needs a clearly higher ratio, or more nodes at a similar ra
 ''')
 
 code(r'''
+# 5.1 Linear programs with every contact allowed: for each number K of block nodes and each position of
+# the block, the best ratio h (block depth / worst depolarisation). Upper bound of what the electrode can do.
 allowed = [int(c) for c in CID if int(c) not in EXCLUDE]
 zone = np.flatnonzero((ZN > BLOCK_ZONE_m[0]) & (ZN < BLOCK_ZONE_m[1]))
 protect = np.flatnonzero(ZN < Z_PROX_m - 1e-3)
@@ -260,6 +268,7 @@ The table lists every design (contacts and weights; anode > 0, cathode < 0, larg
 ''')
 
 code(r'''
+# 5.2 Mixed-integer programs at the best position of each K: the best ratio with at most N active contacts.
 DESIGNS = []
 t0 = time.time()
 for _, row in BEST_POS.iterrows():
@@ -345,6 +354,8 @@ First the reference without any distal pattern (all fibres, needed for C0–C3).
 ''')
 
 code(r'''
+# Pulse helpers (rectangular, trapezoid with ramps written as a staircase), charge-density check on the
+# contact with the largest weight, and the reference run of the proximal pulse alone on every fibre.
 def rect(t_on, w, a):
     return [(t_on, t_on + w, a)]
 
@@ -387,6 +398,8 @@ print(f"reference: {FIRED[TGT_ALL].sum()} fibres of F{TARGET} fire  [{time.time(
 ''')
 
 code(r'''
+# NEURON check on the target fascicle: every candidate design x current (x ramp), two runs per fibre
+# (design alone, proximal + design); criteria C0 (sensation kept) and C1 (residual volley < limit).
 rows, AP1 = [], {}
 jobs, keys = [], []
 for _, c in CANDS.iterrows():
@@ -432,6 +445,7 @@ shows a range of currents where the solid line is below 10 % while the dashed li
 ''')
 
 code(r'''
+# Block curves of each design against the current of its largest contact.
 fig, axs = plt.subplots(1, len(CANDS), figsize=(4.2 * len(CANDS), 3.6), sharey=True, squeeze=False)
 for ax, (_, c) in zip(axs[0], CANDS.iterrows()):
     g = S1[S1.name == c["name"]]
@@ -458,6 +472,8 @@ charge; each run on every fibre (distal pattern alone, and with the proximal pul
 ''')
 
 code(r'''
+# Whole-nerve check (C0-C3 on every fascicle) of the N_CHECK settings with the fewest contacts and the
+# lowest charge among those meeting C0 and C1 on the target.
 ok1 = S1[S1.C0 & S1.C1].merge(CANDS[["name", "n_active"]], on="name")
 SEL = ok1.sort_values(["n_active", "charge_nC"]).head(N_CHECK)
 if SEL.empty:
@@ -498,6 +514,7 @@ to the viewer (its section 10).
 ''')
 
 code(r'''
+# Result: the passing setting with the fewest contacts, then the lowest charge; summary.json.
 best = CHECK[CHECK.PASS].sort_values(["n_active", "charge_nC"]).head(1) if len(CHECK) else CHECK
 summary = {"patient": PATIENT, "target": TARGET, "I_prox_uA": I_PROX * 1e6, "fired_target": int(len(TGT)),
            "designs": DES.to_dict(orient="records"), "candidates": list(CANDS.name),

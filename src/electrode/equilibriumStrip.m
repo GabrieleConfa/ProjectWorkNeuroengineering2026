@@ -1,4 +1,21 @@
 function strip=equilibriumStrip(p,sites,cuff) % Equilibrium of a planar strip in a fixed anatomical section.
+%% Purpose
+% Reduced-order mechanics of the flexible intraneural lead in one station plane (planner 2 of planQuicklookStrip, used when
+% p.electrode.routingModel = "beam" and no insertion scenario exists). The lead is an Euler-Bernoulli beam (bending
+% stiffness EI = E t w^3 / 12) on an elastic foundation (the epineurium, foundation_Npm2), with a small random unloaded bow
+% and a random entry angle (seed routeSeed + station). Its lateral deflection y(s) minimises the bending + foundation energy
+% subject to staying out of every fascicle (perineurium included) and inside the deformed nerve. Each fascicle can be passed
+% on either side, so every combination of sides ("corridor") is visited recursively (visit), the box-constrained quadratic
+% problem of that corridor is solved by an active-set method (boundedBeam), and the lowest-energy admissible shape wins.
+% Piercing a fascicle is considered only if a measured insertion force and puncture force are given (both NaN by default).
+% All values are provisional, [assumed] in config/quicklook3DParams.m.
+%% Inputs / outputs
+%   p      quicklook parameter struct: p.electrode (stripWidth_m, stripThickness_m, stripYoungModulus_Pa, unsupportedLength_m,
+%          foundation_Npm2, tipOverhang_m, initialBow_m, entryAngleRange_deg, routeSeed, reverseEntrySections) and
+%          p.geometry (fascicles_m, tPeri_m, nerve ellipse); SI units
+%   sites  the four intraneural pads of the station (table rows)
+%   cuff   the two cuff pads of the station (they indent the nerve surface the lead starts from)
+%   strip  struct in the format of planQuicklookStrip (path_m, padFaces_m, energy_J [J], EI_Nm2 [N m^2], ...)
 %% 1. Geometry, bending stiffness and unloaded insertion imperfection
 e=p.electrode; f=p.geometry.fascicles_m; % Read the current strip and fascicle dimensions.
 assert(all([e.stripWidth_m,e.stripThickness_m,e.stripYoungModulus_Pa,e.unsupportedLength_m,e.foundation_Npm2]>0),'Positive strip dimensions and stiffness required.'); % Reject invalid mechanical inputs.

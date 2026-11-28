@@ -528,8 +528,8 @@ nC = size(Vdata, 2);
 figure(Color="w", Position=[60 40 min(1800, 330*nC + 100) 760], Name=figTitle);
 tl = tiledlayout(2, nC, TileSpacing="compact");
 title(tl, figTitle, FontWeight="bold");
-inNerve = hypot(geo.msh.Nodes(1,:), geo.msh.Nodes(2,:)) <= 1.1*geo.R;
-for q = 1:nC
+inNerve = hypot(geo.msh.Nodes(1,:), geo.msh.Nodes(2,:)) <= 1.1*geo.R;   % colour limits from the nerve zone only
+for q = 1:nC                                % one column per configuration
     for row = 1:2
         nexttile(tl, (row-1)*nC + q);
         if row == 1
@@ -539,6 +539,7 @@ for q = 1:nC
             data = log10(Edata(:, q));   lim = prctile(data(inNerve), [1 99.5]);
             cmap = parula; cLab = 'log_{10}|E| [V/m]';  tTxt = labels(q) + ": |E|";
         end
+        % the field on the 2D mesh, then the nerve, fascicle and contact outlines on top
         patch(Faces=geo.tri, Vertices=geo.xy_mm', FaceVertexCData=data, FaceColor="interp", ...
               EdgeColor="none");
         hold on; drawOutlines(geo.R, geo.fasc, geo.tPeri, geo.siteCorners);

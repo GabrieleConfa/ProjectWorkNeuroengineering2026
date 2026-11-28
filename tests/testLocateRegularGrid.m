@@ -5,6 +5,7 @@ classdef testLocateRegularGrid < matlab.unittest.TestCase
 
     methods (Test)
         function sameAsPointLocation(tc)
+            % same elements found (up to ties on shared faces) as MATLAB pointLocation: checked through the exact interpolation of a linear field
             rng(3);
             P = [rand(400, 3); dec2bin(0:7) - '0'] * 1e-3;        % random points + cube corners [m]
             T = delaunay(P);   X = P';   T = T';
@@ -25,6 +26,7 @@ classdef testLocateRegularGrid < matlab.unittest.TestCase
         end
 
         function blockAssemblySameMatrix(tc)
+            % assembling the stiffness matrix in blocks of 97 elements must give the same matrix as one block
             rng(4);
             P = rand(300, 3) * 1e-3;   T = delaunay(P)';   X = P';
             sig = rand(3, size(T, 2));

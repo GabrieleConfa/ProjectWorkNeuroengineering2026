@@ -400,17 +400,31 @@ Outputs: `results/block/model_check/`.
 
 ## 7. Limitations and next steps
 
-- One fibre diameter per run; fibres straight and parallel; the same fascicles at both sites (no
+Final state (review of 2026-11-28). Conclusion of the five rounds of §6: **with this electrode and the
+MRG fibre model, no distal configuration tried blocks the volley of the target fascicle before the
+distal site fires the fibres itself.** That covers the mirror anode (monopolar and balanced),
+optimised multi-contact designs and slow ramps. The fibre model can block (textbook check, round 5 A).
+What prevents it is that a block needs more current than the current at which some other point
+depolarises (virtual cathodes, the sleeve ends under a net anodic current, return contacts).
+
+Limitations of the study:
+- One fibre diameter per run (10 µm); fibres straight and parallel; the same fascicles at both sites (no
   fascicle exchange along the arm, which a real nerve has).
-- Mirror valid only while the section is the same along z; with Marco's new fascicle shapes or a bent
-  shank this must be re-checked (or the distal contacts solved).
+- All 48 contacts are solved, so the first-round mirror trick (section −k → +k) is no longer used. The
+  distal profiles come from the solved distal contacts, and the bent leads of the Gmsh model make the
+  two sites different anyway.
 - Multi-contact patterns use superposition with insulating idle contacts (D-07, approximate).
-- Node alignment: a node sits exactly at the proximal station (best case); at the distal station the
-  node position is different, so the "same pattern" does not excite exactly the same fibres.
-- Quasi-static tissue, no electrode–tissue interface.
-- **Safety not checked yet**: anodal block needs large currents on 200 × 200 µm contacts; the charge
-  per phase and the charge density must be compared with the Shannon limit and the CIC of the contact
-  material (slides 08) before any of these configurations is considered usable.
-- Next: a unidirectional distal site (cathode on one station, anode on a more distal one) needs a
-  second solved station (e.g. section −3 → +3 by mirror); multi-contact patterns; fibre-diameter
-  sweep; delay window vs fibre diameter (conduction velocity ∝ D).
+- Node alignment: a node sits exactly at the proximal station (best case); at the distal sites the
+  node position is whatever follows from the internode length.
+- Quasi-static tissue, no electrode–tissue interface; the MRG membrane lacks slow sodium inactivation,
+  which Peña et al. 2025 needed to reproduce onset-free ramped block (round 5).
+- The activating function misses broad depolarisations under long pulses (round 5 B), so the static
+  screens and the optimiser (D-19) must always be confirmed in NEURON.
+- Safety: the notebooks check the charge per phase and the charge density against the Shannon
+  criterion (k = 1.75, `volley.shannon_ok`). The CIC of the contact material (slides 08) is not checked.
+  Shannon was fitted on macro-electrodes and is only indicative for 200 × 200 µm contacts.
+
+Options left open (for the tutor / a continuation): balanced designs that also account for the broad
+sleeve-end depolarisation; an MRG variant with slow Na inactivation; kilohertz-frequency (KHFAC) block;
+fibre-diameter sweep (conduction velocity ∝ D, so the timing window changes). Literature survey of the
+block methods: `docs/literature/block_methods_review.md`.

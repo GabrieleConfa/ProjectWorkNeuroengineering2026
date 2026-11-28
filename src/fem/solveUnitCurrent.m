@@ -1,5 +1,12 @@
 function sol = solveUnitCurrent(nerveModel, siteId, params)
 %SOLVEUNITCURRENT Potential in the nerve when one active site injects 1 A.
+%
+%   NOT IMPLEMENTED (final status, 2026-11-28). Skeleton from the first work plan (docs/work_plan.md),
+%   never filled in: the project did this job elsewhere. Calling it stops with an error. Instead:
+%   the unit-current solves are done by src/main/solve3DContacts.m (assembly in build3DModel with
+%   assembleConductionP1 + thinLayerInterface, pcg solve, per-contact cache).
+%   Kept only as a record of the planned interface; not used by any pipeline.
+%
 %   sol = solveUnitCurrent(nerveModel, siteId, params)
 %
 %   Owner: WP3. Status: SKELETON.

@@ -1,6 +1,14 @@
 %% RUN_PIPELINE  Full pipeline for one virtual patient (skeleton).
 % Owner: WP5. Calls the modules in the order of docs/architecture.md §3.
 % Each step stops with "not implemented" until its owner fills it in.
+%
+% NOT USABLE (final status, 2026-11-28): the skeleton modules it calls were never implemented; the
+% project was built around other entry points. Use instead:
+%   src/main/main_pipeline_3d.m      patient -> geometry -> mesh -> FEM solve of all 48 contacts
+%   scripts/export_viewer_data.m     fields for the 3D viewer
+%   scripts/export_block_profiles.m  + notebooks/  fibre activation and block (MRG in NEURON)
+%   scripts/run_field_safety.m       field-exposure safety check
+% Kept as the record of the planned order of the modules.
 % Run from the project root:   setup_paths; run_pipeline
 
 params = default_params();

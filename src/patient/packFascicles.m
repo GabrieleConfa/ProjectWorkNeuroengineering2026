@@ -4,6 +4,12 @@ function F = packFascicles(q, rs) % Random layout of circular fascicles inside t
 % (fascicles cover 54 percent of the section). Instead, fascicles start at random positions and are pushed apart, and away from
 % the nerve surface, until nothing overlaps. Areas: the largest fascicle and the total area are fixed by the histology
 % (Pusnik 2025), the other nine share the rest with random unequal weights. Output rows: [x y r r 0] in metres.
+%% Inputs / outputs
+%   q   quicklook parameter struct (config/quicklook3DParams.m): q.geometry.pw6 (nFascicles, areaLargest_m2, areaTotal_m2),
+%       q.geometry.tPeri_m and the nerve ellipse (nerveSemiAxes_m, used through nerveBoundaryRadius)
+%   rs  RandStream (reproducibility)
+%   F   n x 5 matrix, one row per fascicle: [x_m y_m r_m r_m 0] (centre, radius twice, rotation 0: circles); error if no
+%       packing is found in 40 restarts
 g = q.geometry; spec = g.pw6; n = spec.nFascicles; tP = g.tPeri_m;
 w = sort(0.5+rand(rs,n-1,1),'descend'); areas = [spec.areaLargest_m2;(spec.areaTotal_m2-spec.areaLargest_m2)*w/sum(w)]; r = sqrt(areas/pi); % Areas of the fascicles.
 th = (0:359)'*pi/180; ray = [cos(th) sin(th)]; N = nerveBoundaryRadius(q,ray).*ray; % Nerve outline.

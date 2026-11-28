@@ -1,5 +1,15 @@
 # Design of the 3D simulation and the viewer — status and next steps
 
+**Final status (2026-11-28, end of the project, full review).** The 3D model (Gmsh, D-14) is solved for all
+48 contacts of UA01 with insulated end planes (D-17); the viewer shows every contact, any pattern of
+contacts, and 13 NEURON runs of the block study (volley playback). The block study ended with a
+negative result: no distal configuration blocked the target volley before firing the fibres itself.
+Rounds 1–5 are in `block.md` §6, the conclusion and the limitations in `block.md` §7. The review of
+2026-11-28 fixed the viewer layout (overlapping text in the colour bar, the volley chart and the narrow
+layout), stated the boundary conditions in the viewer subtitle, fixed the insertion test (it drew too
+few trials), and completed the comments of every source file. The sections below are the history of the
+work and are kept as they were.
+
 Status: **2026-11-26** — Gmsh model (D-14), **all 48 contacts solved** for UA01, viewer data exported
 for all of them; plan for configuration selection and block agreed (§5.6, D-15). Earlier: 2026-11-22
 (oval nerve and rigid tangent cuff pads, D-10/D-11); open questions updated 2026-11-23; roadmap from

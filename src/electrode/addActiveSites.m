@@ -1,5 +1,12 @@
 function geom3 = addActiveSites(geom3, sites, params)
 %ADDACTIVESITES Insert the 48 active sites (and the shank, if modelled) in the 3D geometry.
+%
+%   NOT IMPLEMENTED (final status, 2026-11-28). Skeleton from the first work plan (docs/work_plan.md),
+%   never filled in: the project did this job elsewhere. Calling it stops with an error. Instead:
+%   contacts are loaded by loadActiveSites and placed by placeCuffContacts (PDE Toolbox mesher) or
+%   personalDevice3D (Gmsh mesher), both called from src/main/build3DModel.m.
+%   Kept only as a record of the planned interface; not used by any pipeline.
+%
 %   geom3 = addActiveSites(geom3, sites, params)
 %
 %   Owner: WP2. Status: SKELETON.

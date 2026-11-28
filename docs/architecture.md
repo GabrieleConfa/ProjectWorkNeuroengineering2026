@@ -184,6 +184,14 @@ Table, one row per site at its threshold current: `Q_C`, `chargeDensity_Cpm2`, `
 lives in local functions/sections of `main_pipeline_3d.m` and can be moved there when the
 interfaces are agreed.
 
+**Final status (2026-11-28).** The skeletons of §3 were never filled in: `buildCrossSection2D`,
+`addActiveSites`, `meshNerveModel`, `solveUnitCurrent`, `tissueConductivity`, `makeFibres`,
+`activatingFunction`, `thresholdPerFascicle`, `checkSafety` and `scripts/run_pipeline.m`. The 3D model is
+`main_pipeline_3d.m` → `build3DModel.m` → `solve3DContacts.m`; fibre activation and the thresholds were
+done with the MRG fibre model in NEURON (`src/block/`, `notebooks/`, `docs/block.md`) rather than with a
+fixed activating-function threshold. Each skeleton's header now says this and points to the code that
+does its job.
+
 ## 6. Reuse of the tutor's code
 
 `src/MatlabCode/PW_lesson_5_11_students.m` (2D cross-section, tissues, mesh, plots) is the

@@ -1,5 +1,12 @@
 function c = tissueConductivity(tissueCode, fascicleRadius_m, params)
 %TISSUECONDUCTIVITY Conductivity tensor (diagonal) of a tissue, in the createpde "c" format.
+%
+%   NOT IMPLEMENTED (final status, 2026-11-28). Skeleton from the first work plan (docs/work_plan.md),
+%   never filled in: the project did this job elsewhere. Calling it stops with an error. Instead:
+%   the conductivities are set in config/pw6_3d_params.m (p.materials) and assigned to the elements in
+%   src/main/build3DModel.m (tissueSigma).
+%   Kept only as a record of the planned interface; not used by any pipeline.
+%
 %   c = tissueConductivity(tissueCode, fascicleRadius_m, params)
 %
 %   Owner: WP5. Status: SKELETON.

@@ -1,4 +1,20 @@
 function [plane_m, indentation_m, contactWidth_m, measured, frame] = cuffContactPlane(p, site) % Fit one rigid flat pad to the nerve's native outline.
+%% Purpose
+% A cuff (external) contact is a rigid flat pad pressed on the oval nerve. This function finds the plane of its active face:
+% tangent to the ellipse at the pad's polar landmark (site.theta_deg) and pushed in until BOTH side edges of the pad touch
+% the nerve, plus cuffExtraIndentation_m (or by a measured depth, if p.electrode.cuffMeasuredDepth_m has a row for this pad).
+% The ellipse is x'Qx = 1 with semi-axes p.geometry.nerveSemiAxes_m rotated by p.geometry.nerveRotation_deg; the line/ellipse
+% intersections are solved analytically in the pad frame (n = outward normal, t = tangent across the pad).
+%% Inputs / outputs
+%   p               parameter struct (quicklook3DParams): p.geometry.nerveSemiAxes_m [m], nerveRotation_deg [deg],
+%                   p.electrode.cuffExtraIndentation_m [m], optional p.electrode.cuffMeasuredDepth_m ([id depth_m] rows)
+%   site            one row of the contact table (loadActiveSites): theta_deg, sideXY_m (pad width) [m], id
+%   plane_m         distance of the pad face from the nerve centre along n [m]
+%   indentation_m   depth of the face below the undeformed surface at the pad centre [m]
+%   contactWidth_m  width of the pad that touches the undeformed nerve [m] (<= sideXY_m)
+%   measured        true if the depth came from cuffMeasuredDepth_m, false if from the full-contact assumption
+%   frame           struct: n, t (unit vectors), offset (tangential position of the landmark [m]), centre (face centre
+%                   [m]), cornerAngles (polar angles of the two pad edges [rad], used by the mesher and the plots)
 %% 1. Resolve the rotated oval in the pad's local directions
 ray = [cosd(site.theta_deg),sind(site.theta_deg)]; % Keep the supplied polar location as the native contact landmark.
 a=p.geometry.nerveSemiAxes_m(1); b=p.geometry.nerveSemiAxes_m(2); % Read the anatomical semi-axes.

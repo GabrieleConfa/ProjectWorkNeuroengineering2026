@@ -299,6 +299,7 @@ end
 
 
 function s = rmfieldIf(s, f)
+%RMFIELDIF Remove field f from struct s if it exists (rmfield errors on a missing field).
 if isfield(s, f), s = rmfield(s, f); end
 end
 

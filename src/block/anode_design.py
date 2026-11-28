@@ -127,12 +127,15 @@ def design(A: np.ndarray, contact_id: np.ndarray, *, allowed, target_fibres, blo
                                     protect_nodes, protect_frac, balanced, n_max, time_limit_s, i_bound)
             if res.x is None:
                 return None
+            # constraint generation: add the depolarisation rows the solution violates (up to 3000 per
+            # round, worst first) and solve again, until no row of the full set is violated
             af = D_all @ res.x[:nc]
             viol = np.flatnonzero(af > 1.0 + 1e-6)
             new = [r for r in viol[np.argsort(-af[viol])] if r not in work][:3000]
             if not new:
                 break
             work.update(new)
+    # result: contact currents normalised to the largest one (= weight 1), contacts below 1e-4 dropped
     I = res.x[:nc]
     h = float(res.x[nc])
     big = np.abs(I).max()
@@ -153,6 +156,7 @@ def _solve(Ac, D_all, work, nc, nv, use_int, target_fibres, block_nodes, protect
     rows, lo, hi = [], [], []
 
     def add(M, l, u):
+        """Append a block of linear constraints  l <= M @ x <= u  (rows of M, bounds per row)."""
         rows.append(M); lo.append(l); hi.append(u)
 
     D = D_all[work]

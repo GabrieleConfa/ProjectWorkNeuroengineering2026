@@ -4,8 +4,11 @@ Neuroengineering course project (Politecnico di Milano, A.Y. 2026/2027) — grou
 tutor Luca Sbarsi (luca.sbarsi@polimi.it).
 
 Does the active-site layout of a new intraneural electrode reach **every fascicle** of the human
-median nerve? Answered with a 3D finite element model (MATLAB PDE Toolbox), an
-activating-function criterion for fibre activation, a safety check, and several virtual patients.
+median nerve? Answered with a 3D finite element model of the nerve and of the 48 contacts (MATLAB,
+mesh by Gmsh, own linear-tetrahedra assembly with the perineurium as a thin resistive layer), an
+activating-function criterion for fibre activation, a safety check, and virtual patients. A second
+study asks whether the distal contacts can **block** the action potentials the proximal contacts send
+towards the hand (MRG fibre model in NEURON, Python notebooks): see `docs/block.md`.
 
 Brief: [docs/project_brief.md](docs/project_brief.md) ·
 Architecture: [docs/architecture.md](docs/architecture.md) ·
@@ -17,28 +20,35 @@ Status and next steps: [docs/design.md](docs/design.md) ·
 Meetings: [docs/meetings/](docs/meetings/) ·
 Paper notes: [docs/literature/](docs/literature/)
 
-**New to the project?** Read `docs/architecture.md` §1–4, find your work package in
-`docs/work_plan.md`, open the skeleton functions of your folder in `src/` (their header is the
-contract), and run `setup_paths; runtests('tests')`.
+**New to the project?** Read this README, then `docs/model_3d.md` (the 3D model and its code, step by
+step) and `docs/block.md` (the block study); the choices and their reasons are in `docs/decisions.md`.
+Run `setup_paths; runtests('tests')` to check your installation. The entry points are
+`src/main/main_pipeline_3d.m`, `scripts/export_viewer_data.m`, `scripts/export_block_profiles.m` and the
+notebooks. Nine functions in `src/` (and `scripts/run_pipeline.m`) are skeletons of the first work plan
+that were never implemented; their header says so and points to the code that does the job.
 
 ## Structure
 
 | Folder | Content |
 |---|---|
-| `docs/` | brief, architecture, work plan, parameter table, decision log, one note per paper (papers themselves are not in the repo: download them from the DOIs in the notes) |
-| `src/geometry` | phase 1 — nerve cross-section generator |
-| `src/materials` | phase 2 — conductivity assignment |
-| `src/electrode`, `src/mesh` | phase 3 — active sites, 3D geometry and mesh |
-| `src/fem` | phase 4 — PDE setup, solution, post-processing |
-| `src/activation` | phase 5 — activating function, thresholds per fascicle |
-| `src/safety` | charge / charge-density checks |
-| `src/utils` | shared helpers (plotting, I/O, unit conversion) |
-| `src/main` | the runnable pipelines: `main_pipeline.m` (2D), `main_pipeline_3d.m` (3D simulation) |
-| `config/` | parameter files |
-| `scripts/` | helper scripts: viewer export (`export_viewer_data.m`), MATLAB 3D view (`view_model_3d.m`), 2D quick look |
-| `tests/` | verification tests (`matlab.unittest`) |
+| `docs/` | brief, architecture, work plan, parameter table, decision log (`decisions.md`), 3D model walkthrough (`model_3d.md`), block study (`block.md`), status (`design.md`), patient file format (`patient_data.md`), one note per paper (papers themselves are not in the repo: download them from the DOIs in the notes) |
+| `src/geometry` | phase 1 — nerve cross-section generator (oval nerve, fascicle layout, cuff pad geometry) |
+| `src/patient` | virtual and measured patients (JSON files in `data/patients/personal/`, format in `docs/patient_data.md`) |
+| `src/insertion` | Monte Carlo of the lead insertion: where the bent intraneural lead ends up in each station |
+| `src/materials` | phase 2 — skeleton only, never implemented: the conductivities are in `config/pw6_3d_params.m` and assigned in `build3DModel.m` |
+| `src/electrode`, `src/mesh` | phase 3 — active sites, 3D geometry and mesh (Gmsh mesher `meshPersonalDevice.m` + `mesh_personal.py`, default; PDE Toolbox mesher `buildNerveGeometry3D.m`, legacy) |
+| `src/fem` | phase 4 — P1 assembly, perineurium thin layer, interpolation, grid location |
+| `src/activation` | phase 5 — skeletons only, never implemented: activation and thresholds were done with the MRG fibre model (`src/block/`, `notebooks/`) |
+| `src/safety` | charge / charge-density and field-exposure checks |
+| `src/block` | conduction-block study: FEM potential along the fibres (MATLAB) and the MRG fibre model, batch runner, volley analysis and anode design (Python + NEURON) |
+| `src/utils` | shared helpers |
+| `src/main` | the runnable pipelines: `main_pipeline.m` (2D), `main_pipeline_3d.m` (3D simulation, calls `build3DModel.m` and `solve3DContacts.m`) |
+| `config/` | parameter files: `pw6_3d_params.m` (3D model), `block_params.m` (block study), `quicklook3DParams.m` (geometry of the Gmsh model), ... — the only place where numbers are set |
+| `scripts/` | helper scripts: viewer export (`export_viewer_data.m`), fibre profiles for NEURON (`export_block_profiles.m`), convergence, field safety, insertion study, MATLAB 3D view; `notebook_generators/` writes the block notebooks |
+| `notebooks/` | Jupyter notebooks of the block study (Python + NEURON); each one starts with what it asks and how to run it |
+| `tests/` | verification tests (`matlab.unittest`): analytical FEM cases, geometry, patients, insertion, safety |
 | `data/electrode` | provided active-site layout |
-| `data/patients` | virtual patients (seed + parameters) |
+| `data/patients` | virtual patients (seed + parameters) and personal patients (JSON) |
 | `results/` | generated outputs; only the viewer data (`results/viewer/`) and the 3D figures (`results/main3d/*.png`) are versioned |
 | `report/` | final report / slides |
 | `viewer/` | interactive 3D viewer in the browser (`index.html`, three.js vendored in `viewer/vendor/`) |
@@ -55,9 +65,10 @@ runtests('tests')           % verification tests: all must pass before pushing
 
 ### Just looking at the results: the 3D viewer (no MATLAB needed)
 
-The data of the last simulation (patient UA01 with the oval nerve, station −4) are in the repository, so after cloning
-you can **double-click `viewer/index.html`**. It opens in Chrome, Edge or Firefox, from disk, also
-offline.
+The data of the last simulation (patient UA01, oval nerve, Gmsh model with the bent leads, all 48 contacts
+solved, lateral surface grounded and end planes insulated) and 13 exported NEURON runs of the block study are in
+the repository, so after cloning you can **double-click `viewer/index.html`**. It opens in Chrome, Edge or
+Firefox, from disk, also offline.
 
 | Do this | To |
 |---|---|
@@ -74,19 +85,20 @@ offline.
 What the four quantities show (all for a monopolar stimulus of 1 µA; the "Current" box rescales
 the colour bar, the model being linear):
 
-- **V**, potential [mV]: highest at the contact, but the whole nerve sits at 1.5–5 mV because the
-  insulating cuff forces the current along the nerve. The potential of the contact (= its access
-  resistance × I) depends on where it sits: lowest inside a large fascicle (AS 4 in F1: 9.1 kΩ),
-  higher inside a small one (AS 2 in F7: 11.5 kΩ, the resistive perineurium is close), highest on
-  the cuff (27–30 kΩ: one face only, and the current must run along the insulated nerve).
+- **V**, potential [mV]: highest at the contact, but the whole nerve sits at a few mV because the
+  insulating sleeve forces the current along the nerve. The potential of the contact (= its access
+  resistance × I, shown when hovering it) depends on where it sits: shank contacts 9–18 kΩ, lowest
+  when the contact lies inside a large fascicle (e.g. AS 4, half in F1: 11.9 kΩ), cuff pads 27–39 kΩ
+  (one face only, and the current must run along the insulated nerve).
 - **|E|**, field [V/m], and **|J|**, current density [µA/mm²], both on a log scale: |J| shows where
   the current flows. Current injected inside a fascicle is kept there by the perineurium and runs
   along the fascicle.
 - **AF**, activating function [V/m²]: −∂²V/∂z² over one internode (1 mm), i.e. for a cathodic pulse,
   shown only inside the fascicles and only where it depolarises. **This is what decides whether a
-  fibre fires**, so it is the view that answers the project question: a contact inside a fascicle
-  drives that fascicle strongly and the others little (AS 2 in F7: 58× more than the next
-  fascicle; the cuff pads only 2–3.5×).
+  fibre fires**, so it is the view that answers the project question: a shank contact drives the
+  fascicles next to it far more than the others, the cuff pads spread over the nerve surface
+  (`export_viewer_data` prints, for every contact, the activating function reached by 10 % of the fibres
+  of each fascicle).
 
 Colours are scaled per contact (each contact's own range): to compare contacts, read the numbers
 on the colour bar. A link can open a prepared view, e.g.
@@ -209,17 +221,23 @@ which fascicle is reached first: the potential falls with the distance from the 
 setup_paths; main_pipeline_3d       % or open src/main/main_pipeline_3d.m and press Run
 ```
 
+The default (Gmsh) mesher calls Python: it needs `python -m pip install gmsh numpy scipy`, or the
+environment variable `NERVE_GMSH_PYTHON` pointing to a Python that has them.
+
 What it does, in order (explained step by step in [docs/model_3d.md](docs/model_3d.md)):
 
-1. generates the virtual patient (oval nerve 4.35 × 2.69 mm, roundness 0.62; 10 fascicles,
-   mid-upper arm, from the literature) and saves it in `data/patients/<id>.mat`;
-2. builds the 3D geometry: nerve 70 mm, insulating cuff 50 mm shaped on the oval, the 48 contacts
-   (≈ 4 min). The cuff pads are rigid and flat: tangent to the oval and pressed in until the whole
-   face touches the nerve (the nerve conforms, the electrode does not bend); the shank contacts
-   stay at the tutor's positions;
-3. meshes it with linear tetrahedra (≈ 2 min, ≈ 4.6 M elements);
-4. assembles and solves the FE problem once per selected contact with 1 A (≈ 3.5 min per contact,
-   several GB of RAM), with the perineurium as a thin resistive layer;
+1. generates the virtual patient (oval nerve 4.35 × 2.69 mm, roundness 0.62; 10 fascicles with
+   irregular outlines, mid-upper arm, from the literature) and saves it in `data/patients/<id>.mat`;
+2. simulates one random insertion of the PDMS lead per station (it bends around or pierces the
+   fascicles, `src/insertion/`) and places the four shank pads along it; the cuff pads are rigid and
+   flat, tangent to the oval and pressed in until the whole face touches the nerve; the nerve
+   (70 mm) is wrapped in an insulating PDMS sleeve (50 mm);
+3. meshes it with linear tetrahedra through Gmsh (minutes, only the first time: the mesh is saved in
+   `results/mesh/` and reused; never use `p.mesh3d.cacheMode = "regenerate"` for production runs,
+   it invalidates every solved contact);
+4. assembles the FE problem (perineurium as a thin resistive layer) and solves it once per contact
+   with 1 A (pcg, about 30 s per contact; each contact is saved as soon as it is solved and a re-run
+   resumes from what is on disk);
 5. saves `results/main3d/<id>_3d.mat` (mesh + potentials) and the figures `results/main3d/*.png`.
 
 Every choice is a parameter in **`config/pw6_3d_params.m`** (never in the code); the ones you will
@@ -229,10 +247,10 @@ change most:
 |---|---|---|
 | `p.patient.id`, `p.patient.seed` | `"UA01"`, `1` | which virtual patient (same seed = same patient) |
 | `p.geometry.generator.nerveShape`, `.nerveRoundness`, `.nerveRotation_deg` | `"ellipse"`, `0.62`, `0` | nerve section (`"circle"` = the first, round model) and orientation of the oval in the electrode frame |
-| `p.electrode.cuffEdgeIndent_m` | 7 µm | how deep the edges of a rigid cuff pad press into the nerve |
-| `p.solve3d.sections` | `-4` | stations whose contacts are solved; `[]` = all 48 contacts (≈ 2 h) |
-| `p.domain.endBC` | `"ground"` | end planes grounded or `"insulated"` |
-| `p.mesh3d.h*_m` | 30 µm … 1.2 mm | element sizes |
+| `p.mesh3d.mesher` | `"gmsh"` | `"gmsh"` (bent leads, irregular fascicles, D-14) or `"pdetoolbox"` (straight shanks, circles, the earlier model) |
+| `p.solve3d.sections` | `[]` | stations whose contacts are solved; `[]` = all 48 contacts |
+| `p.domain.endBC` | `"insulated"` | end planes `"insulated"` (D-17) or `"ground"`; the lateral surface is grounded |
+| `p.mesh3d.h*_m` | 5 µm (pad edges) … 1.2 mm | element sizes |
 
 Then, to see the new results in the viewer:
 
@@ -245,4 +263,23 @@ the activating function reached by 10% of the fibres of each fascicle. Reload th
 Commit the new `results/viewer/` files if the group should see them (about 7 MB per contact).
 
 Other entry points: `src/main/main_pipeline.m` (2D model), `scripts/view_model_3d.m` (static 3D view
-in MATLAB).
+in MATLAB), `scripts/run_convergence_3d.m` (mesh convergence), `scripts/run_field_safety.m` (field
+exposure), `scripts/run_insertion_3d.m` (lead-insertion statistics).
+
+### The conduction-block study (Python + NEURON)
+
+Question: the proximal contacts excite a fascicle; can the distal contacts stop the action potentials
+that run towards the hand? Physics, pipeline, every run and its result: [docs/block.md](docs/block.md);
+choices: D-12, D-15 … D-20 in [docs/decisions.md](docs/decisions.md).
+
+Requirements: NEURON (Windows installer, `C:\nrn`; `pip install neuron` has no Windows wheels), the MRG
+membrane mechanism compiled once in `results/mrg/model/` (`nrnivmodl`, see `docs/block.md` §4), and
+`h5py`, `numpy`, `scipy`, `pandas`, `matplotlib`. Then:
+
+1. in MATLAB, after every new 3D solution: `setup_paths; export_block_profiles` (FEM potential along
+   ~450 fibre lines, `results/block/<id>_fibre_profiles.h5`, and a JSON copy of `config/block_params.m`);
+2. open a notebook in `notebooks/` and *Run All*. `block_volley.ipynb` is the main one (travelling
+   volley, anodal block, whole-nerve check, export to the viewer); `block_anode_design.ipynb` designs
+   the minimum anode configuration by optimisation; `block_model_check.ipynb` checks the fibre model
+   against textbook DC block; `block_anode_cathode.ipynb` and `block_anode_configurations.ipynb` are the
+   earlier rounds. `scripts/run_block_study.py` is the first, command-line version of the study.

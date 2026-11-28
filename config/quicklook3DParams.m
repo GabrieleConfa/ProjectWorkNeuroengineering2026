@@ -1,4 +1,17 @@
 function p = quicklook3DParams(opts) % Collect the editable inputs for the 3D geometry preview. opts (optional): patientFile, virtualSeed, functionScenario, functionSeed.
+% QUICKLOOK3DPARAMS  Parameters of the Gmsh model geometry (Marco's "personal device" preview, used by the default 3D
+% mesher since D-14 through src/mesh/gmshAnatomy.m). It starts from config/pw6_2d_params.m and adds:
+%   1. the provisional nerve section: oval of the measured area (Pusnik 2025, roundness 0.62) and a fixed synthetic
+%      layout of 10 fascicles matching the histological area totals (midArmLayout);
+%   2. cuff and lead settings: rigid cuff pad indentation and its blending, routing of the intraneural lead, entry
+%      sides, provisional strip mechanics (all [assumed], to be replaced by device data);
+%   3. local mesh sizes of the preview;
+%   4. puncture screen inputs;
+%   5. the patient: virtual V001 by default, or a JSON patient (docs/patient_data.md), and in "insertion" mode the
+%      random irregular fascicles and the random lead insertion of every station (insertionScenario).
+% opts (struct, optional) overrides p.patient fields: patientFile (path of a JSON patient), virtualSeed,
+% functionScenario ("none" | "random" | "forearmRule" | "mrAIN"), functionSeed. All values in SI units.
+% Note: p.domain.length_m = 60 mm here is the preview length; gmshAnatomy sets the length of the FEM model (70 mm).
 if nargin<1, opts = struct(); end % Defaults: virtual patient 1.
 %% 1. Provisional nerve section
 p = pw6_2d_params(); % Reuse the group settings and tutor's contact file.
